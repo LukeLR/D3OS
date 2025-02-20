@@ -1,12 +1,12 @@
 [package]
 edition = "2024"
-name = "hello"
+name = "meltdown"
 version = "0.1.0"
-authors = ["Michael Schöttner <michael.schoettner@hhu.de>, Fabian Ruhland <ruhland@hhu.de>"]
+authors = ["Lukas Rose <lukas.rose@hhu.de>"]
 
 [lib]
 crate-type = ["staticlib"]
-path = "src/hello.rs"
+path = "src/meltdown.rs"
 
 [dependencies]
 # Local dependencies
