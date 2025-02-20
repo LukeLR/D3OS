@@ -21,6 +21,16 @@ pub fn rdtsc() -> u64 {
     ((high as u64) << 32) | (low as u64)
 }
 
+pub fn maccess(pointer: usize) {
+    unsafe {
+        asm!(
+            "mov {tmp}, [{x}]",
+            x = in(reg) pointer,
+            tmp = out(reg) _,
+        );
+    }
+}
+
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
