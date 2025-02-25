@@ -172,6 +172,13 @@ args = [ "install", "${ESP_DIRECTORY}", "--name", "D3OS", "--", "-config", "towb
 dependencies = [ "link-members", "initrd", "towbootctl" ]
 condition = { files_modified = { input = [ "${BOOTLOADER_DIRECTORY}/initrd.tar", "${BOOTLOADER_DIRECTORY}/kernel.elf", "${BOOTLOADER_DIRECTORY}/towboot.toml" ], output = [ "${ESP_DIRECTORY}/D3OS/towboot.efi", "${ESP_DIRECTORY}/D3OS/towboot.toml" ] } }
 
+[tasks.image-install-removable]
+cwd = "${BOOTLOADER_DIRECTORY}"
+command = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/towbootctl"
+args = [ "install", "${ESP_DIRECTORY}", "--removable", "--", "-config", "towboot.toml"]
+dependencies = [ "link-members", "initrd", "towbootctl" ]
+condition = { files_modified = { input = [ "${BOOTLOADER_DIRECTORY}/initrd.tar", "${BOOTLOADER_DIRECTORY}/kernel.elf", "${BOOTLOADER_DIRECTORY}/towboot.toml" ], output = [ "${ESP_DIRECTORY}/D3OS/towboot.efi", "${ESP_DIRECTORY}/D3OS/towboot.toml" ] } }
+
 [tasks.towbootctl]
 script = '''
 wget -O towbootctl "${TOWBOOT_URL}-x86_64-linux"
