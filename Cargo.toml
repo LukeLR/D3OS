@@ -10,6 +10,8 @@ members = [
     "os/application/date",
     "os/application/mkdir",
     "os/application/meltdown",
+    "os/application/ls",
+    "os/application/ntest"
 ]
 
 # [profile.release]
