@@ -194,13 +194,6 @@ impl Paging {
                     next_level_table.zero();
                 } else {
                     next_level_table = unsafe { (entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
-                    if flags.contains(PageTableFlags::WRITABLE) {
-                        entry.set_flags(PageTableFlags::WRITABLE | entry.flags());
-                    }
-                    if flags.contains(PageTableFlags::USER_ACCESSIBLE) {
-                        entry.set_flags(PageTableFlags::USER_ACCESSIBLE | entry.flags());
-                    }
-                    entry.set_flags(flags | entry.flags());
                 }
 
                 let allocated_pages = Paging::map_in_table(next_level_table, frames, pages, space, flags, level - 1);
