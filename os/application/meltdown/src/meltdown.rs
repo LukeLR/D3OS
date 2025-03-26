@@ -7,6 +7,7 @@ use runtime::*;
 use terminal::{print, println};
 use alloc::vec::Vec;
 use alloc::vec;
+use spin::Mutex;
 
 use core::arch::asm;
 
@@ -15,6 +16,9 @@ use core::arch::asm;
 #[derive(Copy, Clone)] // Required to initialize an entire array with such objects
 #[allow(dead_code)]
 pub struct MemoryPage([u128; 256]);
+
+const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+static MEMORY_PAGE_ARRAY: Mutex<Vec<MemoryPage>> = Mutex::new(Vec::new()); // // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
 
 pub struct Config {
 	measurements: u32,
@@ -159,7 +163,6 @@ pub fn detect_flush_reload_threshold() -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
-    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
 		measurements: 3,
@@ -170,8 +173,10 @@ pub fn main() {
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
-	let mut mem: Vec<MemoryPage> = vec![MemoryPage([0; 256]); ARRAY_SIZE]; // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
-    
+    let mut lock = MEMORY_PAGE_ARRAY.lock();
+	let mut mem: &mut Vec<MemoryPage> = &mut lock;
+	mem.fill(MemoryPage([0; 256]));
+	     
     for i in 0..ARRAY_SIZE {
         flush(&mem[i] as *const MemoryPage);
     }
