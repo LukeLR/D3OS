@@ -170,9 +170,9 @@ pub fn main() {
     let cache_miss_threshold = detect_flush_reload_threshold();
     
 	let mut mem: Vec<MemoryPage> = Vec::with_capacity(ARRAY_SIZE); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
-	mem.fill(MemoryPage([0; 256]));
     
     for i in 0..ARRAY_SIZE {
+		mem.push(MemoryPage([0; 256]));
         flush(&mem[i] as *const MemoryPage);
     }
     
