@@ -175,9 +175,9 @@ pub fn main() {
     
     let mut lock = MEMORY_PAGE_ARRAY.lock();
 	let mut mem: &mut Vec<MemoryPage> = &mut lock;
-	mem.fill(MemoryPage([0; 256]));
 	     
     for i in 0..ARRAY_SIZE {
+		mem.push(MemoryPage([0; 256]));
         flush(&mem[i] as *const MemoryPage);
     }
     
