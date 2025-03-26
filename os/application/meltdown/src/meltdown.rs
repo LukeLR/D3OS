@@ -18,7 +18,7 @@ use core::arch::asm;
 pub struct MemoryPage([u128; 256]);
 
 const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
-static MEMORY_PAGE_ARRAY: Mutex<Vec<MemoryPage>> = Mutex::new(Vec::new()); // // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
+static MEMORY_PAGE_ARRAY: Mutex<Vec<MemoryPage>> = Mutex::new(vec![MemoryPage([0; 256]); ARRAY_SIZE]); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
 
 pub struct Config {
 	measurements: u32,
@@ -177,7 +177,6 @@ pub fn main() {
 	let mut mem: &mut Vec<MemoryPage> = &mut lock;
 	     
     for i in 0..ARRAY_SIZE {
-		mem.push(MemoryPage([0; 256]));
         flush(&mem[i] as *const MemoryPage);
     }
     
