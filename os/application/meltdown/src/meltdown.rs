@@ -5,6 +5,7 @@ extern crate alloc;
 #[allow(unused_imports)]
 use runtime::*;
 use terminal::{print, println};
+use alloc::vec::Vec;
 
 use core::arch::asm;
 
@@ -168,7 +169,8 @@ pub fn main() {
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
-    let mem: [MemoryPage; ARRAY_SIZE] = [MemoryPage([0; 256]); ARRAY_SIZE];
+	let mut mem: Vec<MemoryPage> = Vec::with_capacity(ARRAY_SIZE); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
+	mem.fill(MemoryPage([0; 256]));
     
     for i in 0..ARRAY_SIZE {
         flush(&mem[i] as *const MemoryPage);
