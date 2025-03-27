@@ -165,13 +165,15 @@ pub fn main() {
 		accept_after: 1,
 		retries: 1000,
 	};
-	    
+	
+	let ptr;
+	let layout;
 	let mut mem: Vec<MemoryPage>;
 	let total_memory = mem::size_of::<MemoryPage>() * ARRAY_SIZE;
 	
 	unsafe {
-		let layout = Layout::from_size_align(total_memory, 4096).expect("Layout creation failed");
-		let ptr = alloc(layout);
+		layout = Layout::from_size_align(total_memory, 4096).expect("Layout creation failed");
+		ptr = alloc(layout);
 		if ptr.is_null() {
 			handle_alloc_error(layout);
 		}
@@ -179,17 +181,17 @@ pub fn main() {
 		mem = Vec::from_raw_parts(ptr as *mut MemoryPage, ARRAY_SIZE, ARRAY_SIZE);
 	}
     
-    let mut sum;
-    let mut ptr;
     for i in 0..ARRAY_SIZE {
-		ptr = &mem[i] as *const MemoryPage;
+		let mut sum;
+		let mut cur_ptr;
+		cur_ptr = &mem[i] as *const MemoryPage;
 		sum = mem[i].0.iter().sum::<u128>();
-		println!("{}, {:p}: {}", i, ptr, sum);
+		println!("{}, {:p}: {}", i, cur_ptr, sum);
 		
-		assert_eq!((ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
+		assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
 		assert_eq!(0, sum); // Check whether all elements are initialised with 0
 		
-		flush(ptr);
+		flush(cur_ptr);
 	}
 	
 	println!("Current CPU time: {}", rdtsc());
@@ -200,5 +202,9 @@ pub fn main() {
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, SECRET[index..index].as_ptr());
 		println!("Got value: {}", value);
 		index += 1;
+	}
+	
+	unsafe {
+		dealloc(ptr, layout);
 	}
 }
