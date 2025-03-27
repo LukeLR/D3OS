@@ -18,7 +18,6 @@ use core::arch::asm;
 pub struct MemoryPage([u8; 1]);
 
 const ARRAY_SIZE: usize = 1; // 256 entries, each containing 256 u128's, meaning 256*4K
-static MEMORY_PAGE_ARRAY: Mutex<[MemoryPage; ARRAY_SIZE]> = Mutex::new([MemoryPage([0; 1]); ARRAY_SIZE]); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
 
 pub struct Config {
 	measurements: u32,
@@ -163,6 +162,7 @@ pub fn detect_flush_reload_threshold() -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
+    let mem = MemoryPage([0; 1]);
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
 		measurements: 3,
@@ -173,17 +173,8 @@ pub fn main() {
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
-    let mut lock = MEMORY_PAGE_ARRAY.lock();
-	let mut mem: [MemoryPage; ARRAY_SIZE] = *lock;
-	
-    for i in 0..ARRAY_SIZE {
-        flush(&mem[i] as *const MemoryPage);
-    }
-    
     let mut index: usize = 0;
     while index < SECRET.len() {
-		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, SECRET[index..index].as_ptr());
-		println!("Got value: {}", value);
 		index += 1;
 	}
 }
