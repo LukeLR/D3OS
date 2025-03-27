@@ -4,7 +4,7 @@
 use runtime::*;
 use terminal::{print, println};
 
-const PAGE_SIZE: usize = 256;
+const PAGE_SIZE: usize = 251; // 250 works
 #[allow(dead_code)]
 pub struct MemoryPage([u128; PAGE_SIZE]);
 
