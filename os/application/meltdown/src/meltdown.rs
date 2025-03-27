@@ -9,9 +9,11 @@ use alloc::vec::Vec;
 
 use core::arch::asm;
 
+const PAGE_SIZE: usize = 1;
+
 #[derive(Copy, Clone)] // Required to initialize an entire array with such objects
 #[allow(dead_code)]
-pub struct MemoryPage([u128; 256]);
+pub struct MemoryPage([u128; PAGE_SIZE]);
 
 pub struct Config {
 	measurements: u32,
@@ -121,7 +123,7 @@ pub fn detect_flush_reload_threshold() -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
     let count: u64 = 10000000;
-    let dummy = MemoryPage([0; 256]); // TODO Use single value instead of array ok?
+    let dummy = MemoryPage([0; PAGE_SIZE]); // TODO Use single value instead of array ok?
     let pointer: *const MemoryPage;
     let mut start_time: u64;
     let mut end_time: u64;
@@ -167,10 +169,11 @@ pub fn main() {
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
-	let mut mem: Vec<MemoryPage> = Vec::with_capacity(ARRAY_SIZE); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
-	mem.fill(MemoryPage([0; 256]));
+	let mut mem: Vec<MemoryPage> = Vec::with_capacity(ARRAY_SIZE); // TODO: Is this really continuous memory without gaps / metadata, or is it a linked list or something?
     
     for i in 0..ARRAY_SIZE {
+		mem.push(MemoryPage([0; PAGE_SIZE]));
+		println!("{:p}", &mem[i] as *const MemoryPage);
         flush(&mem[i] as *const MemoryPage);
     }
     
