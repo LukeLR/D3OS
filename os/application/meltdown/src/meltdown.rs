@@ -7,6 +7,8 @@ use runtime::*;
 use terminal::{print, println};
 use alloc::vec::Vec;
 use core::ptr;
+use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+
 
 use core::arch::asm;
 
@@ -170,17 +172,21 @@ pub fn main() {
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
-	let mut mem: Vec<MemoryPage> = Vec::with_capacity(ARRAY_SIZE); // TODO: Is this really continuous memory without gaps / metadata, or is it a linked list or something?
+	let mut mem: *const MemoryPage;
 	
-	let mut ptr = mem.as_mut_ptr();
 	unsafe {
-		ptr::write_bytes(ptr, 0, 4096);
+		let layout = Layout::from_size_align(4096,4096).expect("Layout creation failed");
+		let ptr = alloc(layout);
+		if ptr.is_null() {
+			handle_alloc_error(layout);
+		}
+		ptr::write_bytes(ptr, 16, 4096);
+		mem = (*ptr as *mut MemoryPage);
 	}
     
     for i in 0..ARRAY_SIZE {
-		mem.push(MemoryPage([0; PAGE_SIZE]));
-		println!("{:p}", &mem[i] as *const MemoryPage);
-        flush(&mem[i] as *const MemoryPage);
+		println!("{:p}", mem.offset(i as isize));
+        flush(mem.offset(i as isize));
     }
     
     let mut index: usize = 0;
