@@ -11,8 +11,6 @@ use spin::Mutex;
 
 use core::arch::asm;
 
-// Taken from https://users.rust-lang.org/t/allocate-mut-f32-on-multiple-of-4kb/58309
-#[repr(align(4096))] // TODO is this necessary?
 #[derive(Copy, Clone)] // Required to initialize an entire array with such objects
 #[allow(dead_code)]
 pub struct MemoryPage([u8; 1]);
