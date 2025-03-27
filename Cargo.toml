@@ -10,6 +10,7 @@ members = [
     "os/application/date",
     "os/application/mkdir",
     "os/application/meltdown",
+    "os/application/alloctest",
     "os/application/ls",
     "os/application/ntest"
 ]
