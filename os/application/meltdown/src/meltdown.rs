@@ -15,10 +15,10 @@ use core::arch::asm;
 #[repr(align(4096))] // TODO is this necessary?
 #[derive(Copy, Clone)] // Required to initialize an entire array with such objects
 #[allow(dead_code)]
-pub struct MemoryPage([u128; 256]);
+pub struct MemoryPage([u8; 1]);
 
-const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
-static MEMORY_PAGE_ARRAY: Mutex<[MemoryPage; ARRAY_SIZE]> = Mutex::new([MemoryPage([0; 256]); ARRAY_SIZE]); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
+const ARRAY_SIZE: usize = 1; // 256 entries, each containing 256 u128's, meaning 256*4K
+static MEMORY_PAGE_ARRAY: Mutex<[MemoryPage; ARRAY_SIZE]> = Mutex::new([MemoryPage([0; 1]); ARRAY_SIZE]); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
 
 pub struct Config {
 	measurements: u32,
@@ -128,7 +128,7 @@ pub fn detect_flush_reload_threshold() -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
     let count: u64 = 10000000;
-    let dummy = MemoryPage([0; 256]); // TODO Use single value instead of array ok?
+    let dummy = MemoryPage([0; 1]); // TODO Use single value instead of array ok?
     let pointer: *const MemoryPage;
     let mut start_time: u64;
     let mut end_time: u64;
