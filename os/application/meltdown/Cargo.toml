@@ -13,4 +13,3 @@ path = "src/meltdown.rs"
 runtime = { path = "../../library/runtime" }
 terminal = { path = "../../library/terminal" }
 concurrent = { path = "../../library/concurrent" }
-spin = "0.9.8"
