@@ -9,3 +9,4 @@ authors = ["Michael Schöttner <michael.schoettner@hhu.de>, Fabian Ruhland <ruhl
 num_enum = { version = "0.7", default-features = false }
 bitflags = "1.0"
 syscall = { path = "../syscall" }
+terminal = { path = "../terminal" }

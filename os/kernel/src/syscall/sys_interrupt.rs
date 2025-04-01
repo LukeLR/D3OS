@@ -18,5 +18,7 @@ pub fn sys_register_interrupt(index: u8, handler: Box<dyn InterruptHandler>) {
      *       That means, the interrupt dispatcher would probably need to manage interrupt
      *       overrides per thread.
      */
+    println!("Registering interrupt for {} at address {:p}", index, &*handler as *const dyn InterruptHandler);
     interrupt_dispatcher().assign(InterruptVector::try_from(index).expect("Invalid interrupt index provided!"), handler);
+    println!("{:?}", interrupt_dispatcher());
 }

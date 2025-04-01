@@ -3,12 +3,14 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
+use core::fmt;
 use spin::Mutex;
 use x86_64::registers::control::Cr2;
 use x86_64::set_general_handler;
 use x86_64::structures::idt::InterruptStackFrame;
 use crate::{apic, idt, interrupt_dispatcher, scheduler};
 use crate::memory::PAGE_SIZE;
+use log::info;
 
 #[repr(u8)]
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]
@@ -204,6 +206,9 @@ pub fn setup_idt() {
             Err(_e) => set_general_handler!(&mut idt, handle_interrupt, i..i),
         }
     }
+    interrupt_dispatcher().assign(InterruptVector::try_from(13).expect(""), Box::new(ExceptionInterruptHandler::new(13)));
+    interrupt_dispatcher().assign(InterruptVector::try_from(13).expect(""), Box::new(ExceptionInterruptHandler::new(13)));
+    interrupt_dispatcher().assign(InterruptVector::try_from(13).expect(""), Box::new(ExceptionInterruptHandler::new(13)));
 }
 
 struct ExceptionInterruptHandler {
@@ -212,7 +217,7 @@ struct ExceptionInterruptHandler {
 
 impl InterruptHandler for ExceptionInterruptHandler {
     fn trigger(&self) {
-        panic!("CPU Exception: [{} - {:?}]", self.index, InterruptVector::try_from(self.index).unwrap());
+        println!("CPU Exception: [{} - {:?}]", self.index, InterruptVector::try_from(self.index).unwrap());
     }
 }
 
@@ -280,5 +285,22 @@ impl InterruptDispatcher {
         }
 
         apic().end_of_interrupt();
+    }
+}
+
+impl core::fmt::Debug for InterruptDispatcher {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "InterruptDispatcher with vectors:\n");
+        for i in 0..MAX_VECTORS {
+            let handlers = self.int_vectors[i].lock();
+            if handlers.len() > 0 {
+                write!(f, "{}: ", i);
+                for handler in handlers.iter() {
+                    write!(f, "{:p} ", &(**handler) as *const dyn InterruptHandler);
+                }
+                write!(f, "\n");
+            }
+        }
+        Ok(())
     }
 }
