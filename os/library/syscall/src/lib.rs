@@ -42,6 +42,7 @@ pub enum SystemCall {
     Readdir,
     Cwd,
     Cd,
+    RegisterInterrupt,
     // no syscall, just marking last number, see NUM_SYSCALLS
     // insert any new system calls before this marker
     LastEntryMarker,
