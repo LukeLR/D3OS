@@ -1,4 +1,4 @@
-use crate::interrupt::interrupt_handler::InterruptHandler;
+use interrupt::interrupt_handler::InterruptHandler;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ops::Deref;

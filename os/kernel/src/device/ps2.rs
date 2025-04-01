@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use crate::interrupt::interrupt_dispatcher::InterruptVector;
-use crate::interrupt::interrupt_handler::InterruptHandler;
+use interrupt::interrupt_handler::InterruptHandler;
 use stream::InputStream;
 use log::info;
 use nolock::queues::{DequeueError, mpmc};

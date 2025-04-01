@@ -1,17 +1,13 @@
 /* ╔═════════════════════════════════════════════════════════════════════════╗
    ║ Module: lib                                                             ║
    ╟─────────────────────────────────────────────────────────────────────────╢
-   ║ Descr.: All system call counterparts in kernel, starting with 'sys_'.   ║
+   ║ Descr.: Interrupt interface in user mode.                               ║
    ╟─────────────────────────────────────────────────────────────────────────╢
-   ║ Author: Fabian Ruhland & Michael Schoettner, 30.8.2024, HHU             ║
+   ║ Author: Fabian Ruhland, Michael Schoettner, Lukas Rose 01.04.2025, HHU  ║
    ╚═════════════════════════════════════════════════════════════════════════╝
 */
+#![no_std]
 
-pub mod sys_naming;
-pub mod sys_terminal;
-pub mod sys_concurrent;
-pub mod sys_time;
-pub mod sys_vmem;
-pub mod sys_interrupt;
+pub mod interrupt_handler;
 
-pub mod syscall_dispatcher;
+use interrupt_handler::InterruptHandler;

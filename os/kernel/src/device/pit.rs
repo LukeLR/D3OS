@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use crate::interrupt::interrupt_dispatcher::InterruptVector;
-use crate::interrupt::interrupt_handler::InterruptHandler;
+use interrupt::interrupt_handler::InterruptHandler;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::Mutex;
 use x86_64::instructions::port::{Port, PortWriteOnly};
