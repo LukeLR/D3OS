@@ -187,8 +187,7 @@ unsafe impl Sync for InterruptDispatcher {}
 pub fn setup_idt() {
     let mut idt = idt().lock();
 
-    set_general_handler!(&mut idt, handle_exception, 0..31);
-    set_general_handler!(&mut idt, handle_interrupt, 32..255);
+    set_general_handler!(&mut idt, handle_interrupt, 0..255);
     set_general_handler!(&mut idt, handle_page_fault, 14);
 
     unsafe {
@@ -197,6 +196,29 @@ pub fn setup_idt() {
         // However, since it is hidden behind a Mutex, the borrow checker does not see it with a static lifetime.
         let idt_ref = ptr::from_ref(idt.deref()).as_ref().unwrap();
         idt_ref.load();
+    }
+    
+    for i in 0..31 {
+        match InterruptVector::try_from(i) {
+            Ok(v) => interrupt_dispatcher().assign(v, Box::new(ExceptionInterruptHandler::new(i))),
+            Err(_e) => set_general_handler!(&mut idt, handle_interrupt, i..i),
+        }
+    }
+}
+
+struct ExceptionInterruptHandler {
+    index: u8
+}
+
+impl InterruptHandler for ExceptionInterruptHandler {
+    fn trigger(&self) {
+        panic!("CPU Exception: [{} - {:?}]", self.index, InterruptVector::try_from(self.index).unwrap());
+    }
+}
+
+impl ExceptionInterruptHandler {
+    pub const fn new(index: u8) -> Self {
+        Self { index }
     }
 }
 
