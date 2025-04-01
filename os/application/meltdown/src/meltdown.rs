@@ -5,10 +5,12 @@ extern crate alloc;
 #[allow(unused_imports)]
 use runtime::*;
 use terminal::{print, println};
+use interrupt::register_interrupt;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use core::{ptr, mem};
 use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
-
+use interrupt::interrupt_handler::InterruptHandler;
 
 use core::arch::asm;
 
@@ -155,6 +157,21 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
     return threshold;
 }
 
+struct ProtectionFaultHandler {
+}
+
+impl InterruptHandler for ProtectionFaultHandler {
+    fn trigger(&self) {
+        println!("Caught a GeneralProtectionFault!");
+    }
+}
+
+impl ProtectionFaultHandler {
+    pub const fn new() -> Self {
+        Self { }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
@@ -186,7 +203,7 @@ pub fn main() {
 		let mut cur_ptr;
 		cur_ptr = &mem[i] as *const MemoryPage;
 		sum = mem[i].0.iter().sum::<u128>();
-		println!("{}, {:p}: {}", i, cur_ptr, sum);
+		print!("{} ", i);
 		
 		assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
 		assert_eq!(0, sum); // Check whether all elements are initialised with 0
@@ -196,6 +213,8 @@ pub fn main() {
 	
 	println!("Current CPU time: {}", rdtsc());
 	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
+    
+    register_interrupt(13, Box::new(ProtectionFaultHandler::new()));
     
     let mut index: usize = 0;
     while index < SECRET.len() {
