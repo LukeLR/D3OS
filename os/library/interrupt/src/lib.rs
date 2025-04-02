@@ -16,7 +16,9 @@ use syscall::{syscall, SystemCall};
 use alloc::boxed::Box;
 use terminal::{print, println};
 
-pub fn register_interrupt(index: u8, handler: Box<dyn InterruptHandler>) {
-    println!("Registering interrupt for {} at address {:p}", index, &*handler as *const dyn InterruptHandler);
-    syscall(SystemCall::RegisterInterrupt, &[index as usize, &*handler as *const dyn InterruptHandler as *const () as usize]);
+pub fn register_interrupt(index: u8, handler: *mut dyn InterruptHandler) {
+	unsafe {
+		println!("Registering interrupt for {} at address {:p}", index, handler);
+		syscall(SystemCall::RegisterInterrupt, &[index as usize, handler as *mut () as usize]);
+	}
 }

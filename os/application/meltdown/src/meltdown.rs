@@ -187,9 +187,10 @@ pub fn main() {
     //println!("New ProtectionFaultHandler at address {:p}", &content);
     let handler = Box::new(content);
     //println!("Registering interrupt for {} at address {:p}", 13, &*handler);
-    register_interrupt(13, handler);
+    let handler_raw = Box::into_raw(handler);
+    register_interrupt(13, handler_raw);
     
-    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+    const ARRAY_SIZE: usize = 10; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
 		measurements: 3,
