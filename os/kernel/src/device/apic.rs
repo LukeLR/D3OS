@@ -14,7 +14,7 @@ use x86_64::structures::paging::page::PageRange;
 use x86_64::VirtAddr;
 use x86_64::structures::paging::{Page, PageTableFlags};
 use crate::{acpi_tables, allocator, interrupt_dispatcher, process_manager, scheduler, timer};
-use interrupt::interrupt_handler::InterruptHandler;
+use crate::interrupt::interrupt_handler::InterruptHandler;
 use crate::memory::MemorySpace;
 use crate::memory::vmm::VmaType;
 

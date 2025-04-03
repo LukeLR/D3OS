@@ -22,7 +22,7 @@ use x86_64::structures::paging::page::PageRange;
 use x86_64::{PhysAddr, VirtAddr};
 use crate::{apic, interrupt_dispatcher, pci_bus, process_manager, scheduler};
 use crate::interrupt::interrupt_dispatcher::InterruptVector;
-use interrupt::interrupt_handler::InterruptHandler;
+use crate::interrupt::interrupt_handler::InterruptHandler;
 use crate::memory::{frames, PAGE_SIZE};
 
 const BUFFER_SIZE: usize = 8 * 1024 + 16 + 1500;

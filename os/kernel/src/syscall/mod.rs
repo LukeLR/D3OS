@@ -12,6 +12,5 @@ pub mod sys_terminal;
 pub mod sys_concurrent;
 pub mod sys_time;
 pub mod sys_vmem;
-pub mod sys_interrupt;
 
 pub mod syscall_dispatcher;

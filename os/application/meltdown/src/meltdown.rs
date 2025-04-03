@@ -5,12 +5,10 @@ extern crate alloc;
 #[allow(unused_imports)]
 use runtime::*;
 use terminal::{print, println};
-use interrupt::register_interrupt;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 use core::{ptr, mem};
 use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
-use interrupt::interrupt_handler::InterruptHandler;
+
 
 use core::arch::asm;
 
@@ -157,40 +155,10 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
     return threshold;
 }
 
-struct ProtectionFaultHandler {
-    temp: usize
-}
-
-impl InterruptHandler for ProtectionFaultHandler {
-    fn trigger(&self) {
-        println!("Caught a GeneralProtectionFault!");
-    }
-}
-
-impl ProtectionFaultHandler {
-    pub const fn new() -> Self {
-        Self { temp:1337 }
-    }
-}
-
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
-    
-    let content = 1337;
-    let boxa = Box::new(content);
-    let boxb = Box::new(boxa);
-    
-    assert_eq!(**boxb, 1337);
-    
-    let content = ProtectionFaultHandler::new();
-    //println!("New ProtectionFaultHandler at address {:p}", &content);
-    let handler = Box::new(content);
-    //println!("Registering interrupt for {} at address {:p}", 13, &*handler);
-    let handler_raw = Box::into_raw(handler);
-    register_interrupt(13, handler_raw);
-    
-    const ARRAY_SIZE: usize = 10; // 256 entries, each containing 256 u128's, meaning 256*4K
+    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
 		measurements: 3,
@@ -218,6 +186,7 @@ pub fn main() {
 		let mut cur_ptr;
 		cur_ptr = &mem[i] as *const MemoryPage;
 		sum = mem[i].0.iter().sum::<u128>();
+		println!("{}, {:p}: {}", i, cur_ptr, sum);
 		
 		assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
 		assert_eq!(0, sum); // Check whether all elements are initialised with 0

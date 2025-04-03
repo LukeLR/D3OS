@@ -1,16 +1,14 @@
-use interrupt::interrupt_handler::InterruptHandler;
+use crate::interrupt::interrupt_handler::InterruptHandler;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
-use core::fmt;
 use spin::Mutex;
 use x86_64::registers::control::Cr2;
 use x86_64::set_general_handler;
 use x86_64::structures::idt::InterruptStackFrame;
 use crate::{apic, idt, interrupt_dispatcher, scheduler};
 use crate::memory::PAGE_SIZE;
-use log::info;
 
 #[repr(u8)]
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]
@@ -189,7 +187,8 @@ unsafe impl Sync for InterruptDispatcher {}
 pub fn setup_idt() {
     let mut idt = idt().lock();
 
-    set_general_handler!(&mut idt, handle_interrupt, 0..255);
+    set_general_handler!(&mut idt, handle_exception, 0..31);
+    set_general_handler!(&mut idt, handle_interrupt, 32..255);
     set_general_handler!(&mut idt, handle_page_fault, 14);
 
     unsafe {
@@ -198,32 +197,6 @@ pub fn setup_idt() {
         // However, since it is hidden behind a Mutex, the borrow checker does not see it with a static lifetime.
         let idt_ref = ptr::from_ref(idt.deref()).as_ref().unwrap();
         idt_ref.load();
-    }
-    
-    for i in 0..31 {
-        match InterruptVector::try_from(i) {
-            Ok(v) => interrupt_dispatcher().assign(v, Box::new(ExceptionInterruptHandler::new(i))),
-            Err(_e) => set_general_handler!(&mut idt, handle_interrupt, i..i),
-        }
-    }
-    interrupt_dispatcher().assign(InterruptVector::try_from(13).expect(""), Box::new(ExceptionInterruptHandler::new(13)));
-    interrupt_dispatcher().assign(InterruptVector::try_from(13).expect(""), Box::new(ExceptionInterruptHandler::new(13)));
-    interrupt_dispatcher().assign(InterruptVector::try_from(13).expect(""), Box::new(ExceptionInterruptHandler::new(13)));
-}
-
-struct ExceptionInterruptHandler {
-    index: u8
-}
-
-impl InterruptHandler for ExceptionInterruptHandler {
-    fn trigger(&self) {
-        println!("CPU Exception: [{} - {:?}]", self.index, InterruptVector::try_from(self.index).unwrap());
-    }
-}
-
-impl ExceptionInterruptHandler {
-    pub const fn new(index: u8) -> Self {
-        Self { index }
     }
 }
 
@@ -285,22 +258,5 @@ impl InterruptDispatcher {
         }
 
         apic().end_of_interrupt();
-    }
-}
-
-impl core::fmt::Debug for InterruptDispatcher {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "InterruptDispatcher with vectors:\n");
-        for i in 0..MAX_VECTORS {
-            let handlers = self.int_vectors[i].lock();
-            if handlers.len() > 0 {
-                write!(f, "{}: ", i);
-                for handler in handlers.iter() {
-                    write!(f, "{:p} ", &(**handler) as *const dyn InterruptHandler);
-                }
-                write!(f, "\n");
-            }
-        }
-        Ok(())
     }
 }

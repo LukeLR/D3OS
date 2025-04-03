@@ -20,7 +20,7 @@ use spin::{Mutex, RwLock};
 use x86_64::instructions::port::{Port, PortReadOnly, PortWriteOnly};
 use crate::{apic, interrupt_dispatcher, memory, pci_bus, scheduler, timer};
 use crate::interrupt::interrupt_dispatcher::InterruptVector;
-use interrupt::interrupt_handler::InterruptHandler;
+use crate::interrupt::interrupt_handler::InterruptHandler;
 use crate::memory::PAGE_SIZE;
 use crate::storage::{add_block_device, block};
 use crate::storage::block::BlockDevice;

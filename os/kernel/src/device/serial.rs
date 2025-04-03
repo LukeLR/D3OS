@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use crate::device::serial::ComPort::{Com1, Com2, Com3, Com4};
 use crate::interrupt::interrupt_dispatcher::InterruptVector;
-use interrupt::interrupt_handler::InterruptHandler;
+use crate::interrupt::interrupt_handler::InterruptHandler;
 use stream::{InputStream, OutputStream};
 use alloc::string::String;
 use alloc::sync::Arc;
