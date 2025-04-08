@@ -41,6 +41,8 @@ use crate::memory::{MemorySpace, PAGE_SIZE};
 use crate::process::process::Process;
 use crate::process::scheduler;
 use crate::syscall::syscall_dispatcher::CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX;
+use crate::signal::signal_dispatcher;
+use crate::signal::signal_dispatcher::SignalVector;
 use crate::{memory, process_manager, scheduler, tss};
 use alloc::rc::Rc;
 use alloc::sync::Arc;
@@ -71,6 +73,8 @@ pub struct Thread {
     process: Arc<Process>, // reference to my process
     entry: fn(), // user thread: =0;                 kernel thread: address of entry function
     user_rip: VirtAddr, // user thread: elf-entry function; kernel thread: =0
+    signal_mask: i32, // Which signals should be blocked
+    signal_pending: i32, // Which signals are pending
 }
 
 impl Stacks {
@@ -123,6 +127,8 @@ impl Thread {
                 .expect("Trying to create a kernel thread before process initialization!"),
             entry,
             user_rip: VirtAddr::zero(),
+            signal_mask: 0,
+            signal_pending: 0,
         };
 
         thread.prepare_kernel_stack();
@@ -279,6 +285,8 @@ impl Thread {
             entry: || {},
 // old           entry: unsafe { mem::transmute(ptr::null::<fn()>()) },
             user_rip: VirtAddr::new(elf.entry),
+            signal_mask: 0,
+            signal_pending: 0,
         };
 
         info!("***ms thread");
@@ -346,6 +354,8 @@ impl Thread {
             process: parent,
             entry,
             user_rip: kickoff_addr,
+            signal_mask: 0,
+            signal_pending: 0,
         };
 
         info!("Created user stack for thread: {:x?}", user_stack_pages);
@@ -537,6 +547,41 @@ impl Thread {
 
         unsafe {
             thread_user_start(old_rsp0, self.entry);
+        }
+    }
+
+    /// Block/Unblock a signal in the signal mask
+    fn set_signal_blocked(&mut self, signal_number: u8, state: bool) {
+        assert!(signal_number < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_number);
+        if state {
+            self.signal_mask |= 1 << signal_number;
+        } else {
+            self.signal_mask &= !1 << signal_number;
+        }
+    }
+    
+    /// Set pending signal
+    fn set_signal_pending(&mut self, signal_number: u8) {
+        assert!(signal_number < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_number);
+        self.signal_pending |= 1 << signal_number;
+    }
+    
+    /// Check if thread has a pending signal
+    fn has_pending_signal(&self) -> bool {
+        self.signal_pending > 0
+    }
+    
+    /// Get and clear next pending signal
+    fn get_pending_signal(&mut self) -> Option<SignalVector> {
+        // find next signal (least significant positive bit) using https://graphics.stanford.edu/%7Eseander/bithacks.html#ZerosOnRightModLookup
+        const Mod37BitPosition: [u8; 37] = [32, 0, 1, 26, 2, 23, 27, 0, 3, 16, 24, 30, 28, 11, 0, 13, 4, 7, 17, 0, 25, 22, 31, 15, 29, 10, 12, 6, 0, 21, 14, 9, 5, 20, 8, 19, 18];
+        let signal_number = Mod37BitPosition[((-self.signal_pending & self.signal_pending) % 37) as usize];
+
+        self.signal_pending &= !(1 << signal_number); // clear signal
+        
+        match SignalVector::try_from(signal_number) {
+            Ok(signal_vector) => Some(signal_vector),
+            Err(_) => None,
         }
     }
 }
