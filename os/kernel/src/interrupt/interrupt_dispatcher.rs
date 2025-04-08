@@ -190,6 +190,7 @@ pub fn setup_idt() {
     set_general_handler!(&mut idt, handle_exception, 0..31);
     set_general_handler!(&mut idt, handle_interrupt, 32..255);
     set_general_handler!(&mut idt, handle_page_fault, 14);
+    set_general_handler!(&mut idt, handle_protection_fault, 13);
 
     unsafe {
         // We need to obtain a static reference to the IDT for the following operation.
@@ -214,6 +215,11 @@ fn handle_page_fault(frame: InterruptStackFrame, _index: u8, error: Option<u64>)
     } else {
         panic!("Page Fault!\nError code: [{:?}]\nAddress: [0x{:0>16x}]\n{:?}", error, fault_addr, frame);
     }
+}
+
+fn handle_protection_fault(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
+    scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
+    scheduler().switch_thread(true);
 }
 
 fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>) {

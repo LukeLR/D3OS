@@ -551,19 +551,19 @@ impl Thread {
     }
 
     /// Block/Unblock a signal in the signal mask
-    fn set_signal_blocked(&mut self, signal_number: u8, state: bool) {
-        assert!(signal_number < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_number);
+    fn set_signal_blocked(&mut self, signal_vector: SignalVector, state: bool) {
+        assert!(signal_vector < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_vector);
         if state {
-            self.signal_mask |= 1 << signal_number;
+            self.signal_mask |= 1 << signal_vector;
         } else {
-            self.signal_mask &= !1 << signal_number;
+            self.signal_mask &= !1 << signal_vector;
         }
     }
     
     /// Set pending signal
-    fn set_signal_pending(&mut self, signal_number: u8) {
-        assert!(signal_number < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_number);
-        self.signal_pending |= 1 << signal_number;
+    fn set_signal_pending(&mut self, signal_vector: u8) {
+        assert!(signal_vector < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_vector);
+        self.signal_pending |= 1 << signal_vector;
     }
     
     /// Check if thread has a pending signal
