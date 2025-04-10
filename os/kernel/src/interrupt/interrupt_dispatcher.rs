@@ -9,6 +9,7 @@ use x86_64::set_general_handler;
 use x86_64::structures::idt::InterruptStackFrame;
 use crate::{apic, idt, interrupt_dispatcher, scheduler};
 use crate::memory::PAGE_SIZE;
+use crate::signal::signal_dispatcher::SignalVector;
 
 #[repr(u8)]
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]
@@ -219,7 +220,7 @@ fn handle_page_fault(frame: InterruptStackFrame, _index: u8, error: Option<u64>)
 
 fn handle_protection_fault(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
     scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
-    scheduler().switch_thread(true);
+    scheduler().switch_thread_from_interrupt();
 }
 
 fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>) {
