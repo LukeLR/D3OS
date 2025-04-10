@@ -28,8 +28,8 @@ pub fn next_thread_id() -> usize {
 /// Everything related to the ready state in the scheduler
 struct ReadyState {
     initialized: bool,
-    current_thread: Option<Arc<Thread>>,
-    ready_queue: VecDeque<Arc<Thread>>,
+    current_thread: Option<Arc<Mutex<Thread>>>,
+    ready_queue: VecDeque<Arc<Mutex<Thread>>>,
 }
 
 impl ReadyState {
@@ -45,8 +45,8 @@ impl ReadyState {
 /// Main struct of the scheduler
 pub struct Scheduler {
     ready_state: Mutex<ReadyState>,
-    sleep_list: Mutex<Vec<(Arc<Thread>, usize)>>,
-    join_map: Mutex<Map<usize, Vec<Arc<Thread>>>>, // manage which threads are waiting for a thread-id to terminate
+    sleep_list: Mutex<Vec<(Arc<Mutex<Thread>>, usize)>>,
+    join_map: Mutex<Map<usize, Vec<Arc<Mutex<Thread>>>>>, // manage which threads are waiting for a thread-id to terminate
 }
 
 unsafe impl Send for Scheduler {}
@@ -79,24 +79,24 @@ impl Scheduler {
         let sleep_list = self.sleep_list.lock();
 
         state.ready_queue.iter()
-            .map(|thread| thread.id())
+            .map(|thread| thread.lock().id())
             .collect::<Vec<usize>>()
             .into_iter()
-            .chain(sleep_list.iter().map(|entry| entry.0.id()))
+            .chain(sleep_list.iter().map(|entry| entry.0.lock().id()))
             .collect()
     }
 
     /// Description: Return reference to current thread
-    pub fn current_thread(&self) -> Arc<Thread> {
+    pub fn current_thread(&self) -> Arc<Mutex<Thread>> {
         let state = self.get_ready_state();
         Scheduler::current(&state)
     }
 
     /// Description: Return reference to thread for the given `thread_id`
-    pub fn thread(&self, thread_id: usize) -> Option<Arc<Thread>> {
+    pub fn thread(&self, thread_id: usize) -> Option<Arc<Mutex<Thread>>> {
         self.ready_state.lock().ready_queue
             .iter()
-            .find(|thread| thread.id() == thread_id)
+            .find(|thread| thread.lock().id() == thread_id)
             .cloned()
     }
 
@@ -113,8 +113,8 @@ impl Scheduler {
     /// 
     /// Parameters: `thread` thread to be inserted.
     /// 
-    pub fn ready(&self, thread: Arc<Thread>) {
-        let id = thread.id();
+    pub fn ready(&self, thread: Arc<Mutex<Thread>>) {
+        let id = thread.lock().id();
         let mut join_map;
         let mut state;
 
@@ -183,7 +183,7 @@ impl Scheduler {
             };
 
             // Current thread is initializing itself and may not be interrupted
-            if current.stacks_locked() || tss().is_locked() {
+            if current.lock().stacks_locked() || tss().is_locked() {
                 return;
             }
 
@@ -292,6 +292,11 @@ impl Scheduler {
         ready_state.ready_queue.retain(|thread| thread.id() != thread_id);
     }
 
+    // Blocks or unblocks a signal in the current thread
+    pub fn set_signal_blocked(&self, signal_vector: SignalVector, state: bool) {
+        self.get_ready_state().current_thread.as_mut().expect("Scheduler has no current thread!").set_signal_blocked(signal_vector, state);
+    }
+    
     /// 
     /// Description: Block calling thread
     /// 
@@ -330,11 +335,11 @@ impl Scheduler {
     }
 
     /// Description: Return current running thread
-    fn current(state: &ReadyState) -> Arc<Thread> {
+    fn current(state: &ReadyState) -> Arc<Mutex<Thread>> {
         Arc::clone(state.current_thread.as_ref().expect("Trying to access current thread before initialization!"))
     }
 
-    fn check_sleep_list(state: &mut ReadyState, sleep_list: &mut Vec<(Arc<Thread>, usize)>) {
+    fn check_sleep_list(state: &mut ReadyState, sleep_list: &mut Vec<(Arc<Mutex<Thread>>, usize)>) {
         let time = timer().systime_ms();
 
         sleep_list.retain(|entry| {
@@ -368,7 +373,7 @@ impl Scheduler {
     }
 
     /// Description: Helper function returning `ReadyState` and `Map` of scheduler, each in a MutexGuard
-    fn get_ready_state_and_join_map(&self) -> (MutexGuard<ReadyState>, MutexGuard<Map<usize, Vec<Arc<Thread>>>>) {
+    fn get_ready_state_and_join_map(&self) -> (MutexGuard<ReadyState>, MutexGuard<Map<usize, Vec<Arc<Mutex<Thread>>>>>) {
         loop {
             let ready_state = self.get_ready_state();
             let join_map = self.join_map.try_lock();

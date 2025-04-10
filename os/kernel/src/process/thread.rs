@@ -92,7 +92,7 @@ impl Stacks {
 impl Thread {
     /// Create a kernel thread. Not started yet, nor registered in the scheduler. \
     /// `entry` is the thread entry function.
-    pub fn new_kernel_thread(entry: fn(), tag_str: &str) -> Arc<Thread> {
+    pub fn new_kernel_thread(entry: fn(), tag_str: &str) -> Arc<Mutex<Thread>> {
         // alocate frames for kernel stack
         let kernel_stack = Vec::<u64, StackAllocator>::with_capacity_in(
             (KERNEL_STACK_PAGES * PAGE_SIZE) / 8,
@@ -131,13 +131,13 @@ impl Thread {
         };
 
         thread.prepare_kernel_stack();
-        Arc::new(thread)
+        Arc::new(Mutex::new(thread))
     }
 
     /// Load application code from `elf_buffer`, create a process with a main thread. \
     /// `name` is the name of the application, `args` are the arguments passed to the application. \
     /// Returns the main thread of the application which is not yet registered in the scheduler.
-    pub fn load_application(elf_buffer: &[u8], name: &str, args: &Vec<&str>) -> Arc<Thread> {
+    pub fn load_application(elf_buffer: &[u8], name: &str, args: &Vec<&str>) -> Arc<Mutex<Thread>> {
         let process = process_manager().write().create_process();
         //let address_space = process.address_space();
 
@@ -291,7 +291,7 @@ impl Thread {
         info!("***ms thread");
 
         thread.prepare_kernel_stack();
-        Arc::new(thread)
+        Arc::new(Mutex::new(thread))
     }
 
     /// Create user thread. Not started yet, nor registered in the scheduler. \
@@ -302,7 +302,7 @@ impl Thread {
         parent: Arc<Process>,
         kickoff_addr: VirtAddr,
         entry: fn(),
-    ) -> Arc<Thread> {
+    ) -> Arc<Mutex<Thread>> {
         // alloc memory for kernel stack
         let kernel_stack = Vec::<u64, StackAllocator>::with_capacity_in(
             (KERNEL_STACK_PAGES * PAGE_SIZE) / 8,
@@ -360,7 +360,7 @@ impl Thread {
         info!("Created user stack for thread: {:x?}", user_stack_pages);
 
         thread.prepare_kernel_stack();
-        Arc::new(thread)
+        Arc::new(Mutex::new(thread))
     }
 
     /// Called first for both a new kernel and a new user thread
