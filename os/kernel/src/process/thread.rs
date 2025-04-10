@@ -406,7 +406,8 @@ impl Thread {
         let next_address_space = next.process.virtual_address_space.page_table_address().as_u64();
 
         unsafe {
-            thread_switch(current_rsp0, next_rsp0, next_rsp0_end, next_address_space);
+            thread_switch_save(current_rsp0);
+            thread_switch_load(next_rsp0, next_rsp0_end, next_address_space);
         }
     }
 
@@ -625,15 +626,10 @@ unsafe extern "C" fn thread_user_start(old_rsp0: u64, entry: fn()) {
     )
 }
 
-/// Low-level thread switching function
+/// Low-level thread switching functions
 #[naked]
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe extern "C" fn thread_switch(
-    current_rsp0: *mut u64,
-    next_rsp0: u64,
-    next_rsp0_end: u64,
-    next_cr3: u64,
-) {
+unsafe extern "C" fn thread_switch_save(current_rsp0: *mut u64) {
     naked_asm!(
     // Save registers of current thread
     "pushf",
@@ -653,20 +649,27 @@ unsafe extern "C" fn thread_switch(
     "push rdi",
     "push rbp",
 
-    // Save stack pointer in 'current_rsp0' (first parameter)
+    // Save stack pointer in 'current_rsp0' (first parameter stored in rdi)
     "mov [rdi], rsp",
+    )
+}
 
-    // Set rsp0 of kernel stack in tss (third parameter 'next_rsp0_end')
+#[naked]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn thread_switch_load(next_rsp0: u64, next_rsp0_end: u64, next_cr3: u64) {
+    naked_asm!(
+    // Set rsp0 of kernel stack in tss (second parameter 'next_rsp0_end' stored in rsi,
+    // first usable address of next_rsp0 thread)
     "swapgs", // Setup core local storage access via gs base
     "mov rax,gs:[{CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX}]", // Load pointer to rsp0 entry of tss into rax
-    "mov [rax],rdx", // Set rsp0 entry in tss to 'next_rsp0_end' (third parameter)
+    "mov [rax],rsi", // Set rsp0 entry in tss to 'next_rsp0_end' (third parameter)
     "swapgs", // Restore gs base
+    
+    // Switch address space (third parameter 'next_cr3' stored in rdx)
+    "mov cr3, rdx",
 
-    // Switch address space (fourth parameter 'next_cr3')
-    "mov cr3, rcx",
-
-    // Load registers of next thread by using 'next_rsp0' (second parameter)
-    "mov rsp, rsi",
+    // Load registers of next thread by using 'next_rsp0' (first parameter stored in rdi)
+    "mov rsp, rdi",
     "pop rbp",
     "pop rdi",
     "pop rsi",
@@ -686,6 +689,6 @@ unsafe extern "C" fn thread_switch(
 
     "call unlock_scheduler", // force unlock, thread_switch locks Scheduler but returns later
     "ret", // Return to next thread
-    CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX = const CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX
+    CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX = const CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX,
     )
 }
