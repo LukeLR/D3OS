@@ -186,7 +186,7 @@ pub fn main() {
 		let mut cur_ptr;
 		cur_ptr = &mem[i] as *const MemoryPage;
 		sum = mem[i].0.iter().sum::<u128>();
-		println!("{}, {:p}: {}", i, cur_ptr, sum);
+		//println!("{}, {:p}: {}", i, cur_ptr, sum);
 		
 		assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
 		assert_eq!(0, sum); // Check whether all elements are initialised with 0
