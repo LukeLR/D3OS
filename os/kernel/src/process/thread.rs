@@ -551,28 +551,28 @@ impl Thread {
     }
 
     /// Block/Unblock a signal in the signal mask
-    fn set_signal_blocked(&mut self, signal_vector: SignalVector, state: bool) {
-        assert!(signal_vector < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_vector);
+    pub fn set_signal_blocked(&mut self, signal_vector: SignalVector, state: bool) {
+        assert!((signal_vector as u8) < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
         if state {
-            self.signal_mask |= 1 << signal_vector;
+            self.signal_mask |= 1 << signal_vector as u8;
         } else {
-            self.signal_mask &= !1 << signal_vector;
+            self.signal_mask &= !1 << signal_vector as u8;
         }
     }
     
     /// Set pending signal
-    fn set_signal_pending(&mut self, signal_vector: u8) {
-        assert!(signal_vector < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {}", signal_vector);
-        self.signal_pending |= 1 << signal_vector;
+    pub fn set_signal_pending(&mut self, signal_vector: SignalVector) {
+        assert!((signal_vector as u8) < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
+        self.signal_pending |= 1 << signal_vector as u8;
     }
     
     /// Check if thread has a pending signal
-    fn has_pending_signal(&self) -> bool {
+    pub fn has_pending_signal(&self) -> bool {
         self.signal_pending > 0
     }
     
     /// Get and clear next pending signal
-    fn get_pending_signal(&mut self) -> Option<SignalVector> {
+    pub fn get_pending_signal(&mut self) -> Option<SignalVector> {
         // find next signal (least significant positive bit) using https://graphics.stanford.edu/%7Eseander/bithacks.html#ZerosOnRightModLookup
         const Mod37BitPosition: [u8; 37] = [32, 0, 1, 26, 2, 23, 27, 0, 3, 16, 24, 30, 28, 11, 0, 13, 4, 7, 17, 0, 25, 22, 31, 15, 29, 10, 12, 6, 0, 21, 14, 9, 5, 20, 8, 19, 18];
         let signal_number = Mod37BitPosition[((-self.signal_pending & self.signal_pending) % 37) as usize];
