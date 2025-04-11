@@ -415,9 +415,13 @@ impl Thread {
         let next_rsp0 = next.stacks.lock().old_rsp0.as_u64();
         let next_rsp0_end = next.kernel_stack_addr().as_u64();
         let next_address_space = next.process.virtual_address_space.page_table_address().as_u64();
-
-        unsafe {
-            thread_switch(current_rsp0, next_rsp0, next_rsp0_end, next_address_space);
+        
+        if next.has_pending_signal() {
+            println!("Has pending signal! Continuing.");
+        } else {
+            unsafe {
+                thread_switch(current_rsp0, next_rsp0, next_rsp0_end, next_address_space);
+            }
         }
     }
 

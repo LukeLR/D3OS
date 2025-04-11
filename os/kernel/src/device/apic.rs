@@ -228,7 +228,8 @@ impl Apic {
             unsafe { self.local_apic.force_unlock(); }
             local_apic = self.local_apic.try_lock();
         }
-
+        
+        // Call the LocalApic from the x2apic crate, which will unset the eoi-bit
         unsafe { local_apic.unwrap().end_of_interrupt(); }
     }
 

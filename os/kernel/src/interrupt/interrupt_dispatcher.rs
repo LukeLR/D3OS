@@ -219,6 +219,7 @@ fn handle_page_fault(frame: InterruptStackFrame, _index: u8, error: Option<u64>)
 }
 
 fn handle_protection_fault(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
+    println!("General protection fault handler");
     scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
     scheduler().switch_thread_from_interrupt();
 }
