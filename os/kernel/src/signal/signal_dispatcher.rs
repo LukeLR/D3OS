@@ -80,6 +80,10 @@ pub struct SignalDispatcher {
 unsafe impl Send for SignalDispatcher {}
 unsafe impl Sync for SignalDispatcher {}
 
+pub fn handle_signal() {
+	println!("Handling signal...");
+}
+
 impl SignalDispatcher {
     pub fn new() -> Self {
         let mut int_vectors = Vec::<Mutex<Vec<Box<dyn SignalHandler>>>>::new();
