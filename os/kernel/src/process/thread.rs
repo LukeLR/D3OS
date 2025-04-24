@@ -56,6 +56,7 @@ use spin::Mutex;
 use x86_64::PrivilegeLevel::Ring3;
 use x86_64::VirtAddr;
 use x86_64::structures::gdt::SegmentSelector;
+use x86_64::structures::idt::InterruptStackFrame;
 use x86_64::structures::paging::page::PageRange;
 use x86_64::structures::paging::{Page, PageTableFlags, Size4KiB};
 
@@ -416,11 +417,23 @@ impl Thread {
         let next_rsp0_end = next.kernel_stack_addr().as_u64();
         let next_address_space = next.process.virtual_address_space.page_table_address().as_u64();
         
-        /*scheduler::unlock_scheduler();
-        if next.has_pending_signal() {
+        //scheduler::unlock_scheduler();
+        /*if next.has_pending_signal() {
             //println!("{} -> {} has pending signal! Continuing. Ready threads: {:?}", current.id(), next.id(), scheduler().active_thread_ids());
             println!("s");
+            //interrupt_stack_frame: *const InterruptStackFrame = next.stacks.lock().old_rsp0.as_ptr();
+            //println!("frame: {:?}", interrupt_stack_frame);
+            
+            let rsp0_pointer: *const u64 = next.stacks.lock().old_rsp0.as_ptr();
+            let ds = rsp0_pointer.read();
+            let user_rsp = rsp0_pointer.offset(-1).read();
+            let rflags = rsp0_pointer.offset(-2).read();
+            let cs = rsp0_pointer.offset(-3).read();
+            let rip = rsp0_pointer.offset(-4).read();
+            println!("next_rsp0: {:x}, ds: {:x}, user_rsp: {:x}, rflags: {:x}, cs: {:x}, rip: {:x}", next_rsp0, ds, user_rsp, rflags, cs, rip);
         }*/
+        
+        //next.stacks.lock().user_stack.push(signal_dispatcher::handle_signal as u64);
         
         unsafe {
             thread_switch(current_rsp0, next_rsp0, next_rsp0_end, next_address_space);

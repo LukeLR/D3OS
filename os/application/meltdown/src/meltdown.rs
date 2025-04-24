@@ -158,6 +158,7 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
+    println!("Address of handle_signal: {:x}", handle_signal as u64);
     const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {

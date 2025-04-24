@@ -220,10 +220,11 @@ fn handle_page_fault(frame: InterruptStackFrame, _index: u8, error: Option<u64>)
 }
 
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
-    println!("General protection fault handler, rip: {:x}, cs: {:?}, rflags: {:?}, rsp: {:x}, ss: {:?}", frame.instruction_pointer, frame.code_segment, frame.cpu_flags, frame.stack_pointer, frame.stack_segment);
+    println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
     unsafe {
         frame.as_mut().update(|frame| frame.instruction_pointer = VirtAddr::new(handle_signal as u64));
     }
+    println!("Updated rip, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
     scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
     //scheduler().switch_thread_from_interrupt();
     // Must return, otherwise no iret and interrupts won't get enabled again!
