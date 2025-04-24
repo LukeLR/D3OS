@@ -222,6 +222,13 @@ fn handle_page_fault(frame: InterruptStackFrame, _index: u8, error: Option<u64>)
 
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
     println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
+    let handle_signal;
+    
+    match scheduler().current_thread().process().signal_dispatcher.get(SignalVector::SIGSEGV) {
+        Some(address) => handle_signal = address,
+        None => handle_signal = 0,
+    }
+    
     unsafe {
         frame.as_mut().update(|frame| frame.instruction_pointer = VirtAddr::new(handle_signal as u64));
     }
