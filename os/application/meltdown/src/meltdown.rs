@@ -8,7 +8,7 @@ use terminal::{print, println};
 use alloc::vec::Vec;
 use core::{ptr, mem};
 use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
-use signal::signal_dispatcher::{SignalVector, handle_signal};
+use signal::signal_vector::SignalVector;
 
 use core::arch::asm;
 
@@ -81,6 +81,10 @@ pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bo
     flush(pointer); // The entry is probably cached now no matter whether it was cached before, flush it so we don't expell the entry we are looking for from the cache by caching all other entries
     
     end_time - start_time < cache_miss_threshold
+}
+
+pub fn handle_signal() {
+	println!("Handling signal...");
 }
 
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {

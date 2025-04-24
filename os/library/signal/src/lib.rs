@@ -3,5 +3,5 @@
 
 extern crate alloc;
 
-pub mod signal_dispatcher;
 pub mod signal_handler;
+pub mod signal_vector;

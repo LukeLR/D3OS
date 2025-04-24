@@ -41,8 +41,8 @@ use crate::memory::{MemorySpace, PAGE_SIZE};
 use crate::process::process::Process;
 use crate::process::scheduler;
 use crate::syscall::syscall_dispatcher::CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX;
-use signal::signal_dispatcher;
-use signal::signal_dispatcher::SignalVector;
+use crate::signal::signal_dispatcher;
+use signal::signal_vector::SignalVector;
 use crate::{memory, process_manager, scheduler, tss};
 use alloc::rc::Rc;
 use alloc::sync::Arc;
@@ -582,7 +582,7 @@ impl Thread {
 
     /// Block/Unblock a signal in the signal mask
     pub fn set_signal_blocked(&self, signal_vector: SignalVector, state: bool) {
-        assert!((signal_vector as u8) < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
+        assert!((signal_vector as u8) < signal::signal_vector::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
         if state {
             self.signals.lock().signal_mask |= 1 << signal_vector as u8;
         } else {
@@ -592,7 +592,7 @@ impl Thread {
     
     /// Set pending signal
     pub fn set_signal_pending(&self, signal_vector: SignalVector) {
-        assert!((signal_vector as u8) < signal_dispatcher::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
+        assert!((signal_vector as u8) < signal::signal_vector::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
         self.signals.lock().signal_pending |= 1 << signal_vector as u8;
     }
     

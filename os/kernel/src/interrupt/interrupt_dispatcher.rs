@@ -10,7 +10,8 @@ use x86_64::structures::idt::InterruptStackFrame;
 use x86_64::VirtAddr;
 use crate::{apic, idt, interrupt_dispatcher, scheduler};
 use crate::memory::PAGE_SIZE;
-use signal::signal_dispatcher::{SignalVector, handle_signal};
+use crate::signal::signal_dispatcher::handle_signal;
+use signal::signal_vector::SignalVector;
 
 #[repr(u8)]
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]

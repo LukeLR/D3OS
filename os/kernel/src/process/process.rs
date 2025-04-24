@@ -13,7 +13,7 @@ use core::sync::atomic::Ordering::Relaxed;
 use crate::{ process_manager, scheduler};
 use crate::memory::pages::Paging;
 use crate::memory::vmm::VirtualAddressSpace;
-use signal::signal_dispatcher::SignalDispatcher;
+use crate::signal::signal_dispatcher::SignalDispatcher;
 
 static PROCESS_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
