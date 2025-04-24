@@ -8,7 +8,7 @@ use terminal::{print, println};
 use alloc::vec::Vec;
 use core::{ptr, mem};
 use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
-
+use signal::signal_dispatcher::{SignalVector, handle_signal};
 
 use core::arch::asm;
 
