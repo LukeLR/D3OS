@@ -97,13 +97,21 @@ impl SignalHandler for SegfaultHandler {
 }
 
 // Debugging only
+#[unsafe(no_mangle)]
 pub fn handle_signal() {
 	println!("Handling signal. This means we successfully jumped back into userspace!");
+}
+
+#[unsafe(no_mangle)]
+pub fn dummy_function() {
+	println!("This is a dummy function!");
 }
 
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	for _ in 0..config.retries {
 		// TODO: Set segmentation fault callback position
+		dummy_function();
+		//println!("Executing meltdown_fast. This will cause a segmentation fault.");
 		meltdown_fast(mem, pointer);
 			
 		for i in 0..mem.len() {
