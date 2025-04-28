@@ -143,7 +143,7 @@ pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPa
 pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
     let mut reload_time: u64 = 0;
     let mut flush_reload_time: u64 = 0;
-    let count: u64 = 10000000;
+    let count: u64 = 10000;
     let mut start_time: u64;
     let mut end_time: u64;
     
