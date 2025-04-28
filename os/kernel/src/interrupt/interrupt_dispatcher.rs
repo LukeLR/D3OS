@@ -230,7 +230,13 @@ fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Opt
     }
     
     unsafe {
-        frame.as_mut().update(|frame| frame.instruction_pointer = VirtAddr::new(handle_signal as u64));
+        frame.as_mut().update(|frame| {
+            let stack_pointer: *mut u64 = frame.stack_pointer.as_mut_ptr();
+            
+            stack_pointer.write(frame.instruction_pointer.as_u64());
+            frame.stack_pointer -= 8;
+            frame.instruction_pointer = VirtAddr::new(handle_signal as u64);
+        });
     }
     println!("Updated rip, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
     scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
