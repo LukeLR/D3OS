@@ -134,10 +134,11 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 		}
 	}
 	println!("All values were 0");
-	return 0; // Maybe only return 0 (first entry) after ensuring it was not one of the other values?
+	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
 }
 
 pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> u32 {
+	println!("Called libkdump_read for pointer {:?}", pointer);
 	const ARRAY_SIZE: usize = 256;
 	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
@@ -145,6 +146,7 @@ pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPa
 	
 	for _ in 0..config.measurements {
 		// TODO: Add implementation using TSX?
+		println!("Calling libkdump_read_signal_handler for pointer {:?}", pointer);
 		let r = libkdump_read_signal_handler(config, cache_miss_threshold, mem, pointer);
 		res_stat[r] += 1;
 	}
