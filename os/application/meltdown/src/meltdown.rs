@@ -109,7 +109,8 @@ pub fn handle_signal() {
 }
 
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
-	for _ in 0..config.retries {
+	println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
+	for iteration in 0..config.retries {
 		// TODO: Set segmentation fault callback position
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
@@ -128,9 +129,12 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 			// TODO: original has sched_yield(); here
 		}
 		// TODO: original has sched_yield(); here
+		if iteration % 10 == 9 {
+			println!("Iteration {} done!", iteration);
+		}
 	}
-	
-	return 0;
+	println!("All values were 0");
+	return 0; // Maybe only return 0 (first entry) after ensuring it was not one of the other values?
 }
 
 pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> u32 {
