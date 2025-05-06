@@ -208,7 +208,8 @@ pub fn main() {
 	let ptr;
 	let layout;
 	let mut mem: Vec<MemoryPage>;
-	let total_memory = mem::size_of::<MemoryPage>() * ARRAY_SIZE;
+	let page_size = mem::size_of::<MemoryPage>();
+	let total_memory = page_size * ARRAY_SIZE;
 	
 	unsafe {
 		layout = Layout::from_size_align(total_memory, 4096).expect("Layout creation failed");
@@ -216,19 +217,24 @@ pub fn main() {
 		if ptr.is_null() {
 			handle_alloc_error(layout);
 		}
-		ptr::write_bytes(ptr, 0, total_memory);
+		for i in 0..ARRAY_SIZE {
+			ptr::write_bytes(ptr.add(i * page_size), i as u8, page_size);
+		}
 		mem = Vec::from_raw_parts(ptr as *mut MemoryPage, ARRAY_SIZE, ARRAY_SIZE);
 	}
     
     for i in 0..ARRAY_SIZE {
-		let mut sum;
-		let mut cur_ptr;
-		cur_ptr = &mem[i] as *const MemoryPage;
-		sum = mem[i].0.iter().sum::<u128>();
-		//println!("{}, {:p}: {}", i, cur_ptr, sum);
+		let cur_ptr = &mem[i] as *const MemoryPage;
+		// Construct the correct value: 16 bytes each containing i
+		let mut correct_value = i as u128;
+		for j in 1..16 {
+			correct_value += (i as u128) << j * 8;
+		}
 		
 		assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
-		assert_eq!(0, sum); // Check whether all elements are initialised with 0
+		for val in mem[i].0.iter() {
+			assert_eq!(*val, correct_value); // Check whether all elements are initialised with i
+		}
 		
 		flush(cur_ptr);
 	}
