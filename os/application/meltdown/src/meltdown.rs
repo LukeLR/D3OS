@@ -257,8 +257,13 @@ pub fn main() {
 		for val in mem[i].0.iter() {
 			assert_eq!(*val, correct_value); // Check whether all elements are initialised with i
 		}
-		
-		flush(cur_ptr);
+	}
+	
+	// cache line granularity is probably 64 bytes, therefore we step by 64 to flush the entire memory
+	for i in (0..total_memory).step_by(64) {
+		unsafe {
+			flush(ptr.add(i) as *const MemoryPage);
+		}
 	}
 	
 	println!("Current CPU time: {}", rdtsc());
