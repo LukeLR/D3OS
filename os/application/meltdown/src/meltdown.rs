@@ -214,6 +214,14 @@ fn load_thread() {
 	}
 }
 
+fn nop_thread() {
+	unsafe {
+		loop {
+			asm!("nop");
+		}
+	}
+}
+
 #[unsafe(no_mangle)]
 pub fn main() {
     println!("Meltdown start\n");
@@ -274,8 +282,8 @@ pub fn main() {
 	
 	for i in 0..3 {
 		// TODO: Find out why load threads are used in the original
-		thread::create(load_thread);
-		println!("Started load_thread {}!", i);
+		thread::create(nop_thread);
+		println!("Started nop_thread {}!", i);
 	}
 	
 	while index < SECRET.len() {
