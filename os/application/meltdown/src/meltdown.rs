@@ -125,8 +125,6 @@ pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bo
     
     flush(pointer); // The entry is probably cached now no matter whether it was cached before, flush it so we don't expell the entry we are looking for from the cache by caching all other entries
     
-    println!("load took {}, threshold is {}", end_time - start_time, cache_miss_threshold);
-    
     end_time - start_time < cache_miss_threshold
 }
 
