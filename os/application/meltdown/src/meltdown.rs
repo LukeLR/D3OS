@@ -52,8 +52,10 @@ pub fn rdtsc() -> u64 {
     let low: u32;
     unsafe {
         asm!(
+            "mfence",
             "rdtsc",
-            out("eax") low,
+            "mfence", // TODO: This is after combining both 32bit parts of the result in the original, i.e. the last line before return
+            out("eax") low, // TODO: Can we use rax and rdx instead, to skip combining?
             out("edx") high
         );
     }
