@@ -86,7 +86,7 @@ pub fn rdtsc() -> u64 {
     let low: u32;
     unsafe {
         asm!(
-            "mfence",
+            "mfence", // Apparently it was the mfence instructions here which caused all memory accesses to be fast (below threshold), making meltdown attack impossible
             "rdtsc",
             "mfence", // TODO: This is after combining both 32bit parts of the result in the original, i.e. the last line before return
             out("eax") low, // TODO: Can we use rax and rdx instead, to skip combining?
@@ -329,7 +329,9 @@ pub fn main() {
 		index += 1;
 	}
 	
+	println!("Done. Deallocating now!");
 	unsafe {
 		dealloc(ptr, layout);
 	}
+	println!("Done deallocating. Exiting.");
 }
