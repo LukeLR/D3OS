@@ -301,7 +301,7 @@ pub fn main() {
 		}
 	}
 	
-	// Cache line granularity is probably 64 bytes, therefore we step by 64 to flush the entire memory. Stepping by 4K is probably also enough, as we only access the first byte of each page.
+	// Cache line granularity is probably 64 bytes, therefore we step by 64 to flush the entire memory. Stepping by 4K is probably also enough, as we only access the first byte of each page, TODO check
 	for i in (0..total_memory).step_by(64) {
 		unsafe {
 			flush(ptr.add(i) as *const MemoryPage);
@@ -316,6 +316,7 @@ pub fn main() {
 	
 	for i in 0..3 {
 		// TODO: Find out why load threads are used in the original
+		// TODO: Do we really need load threads?
 		thread::create(nop_thread);
 		println!("Started nop_thread {}!", i);
 	}
