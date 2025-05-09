@@ -148,7 +148,7 @@ pub fn handle_signal() {
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
-		print!(" {}\033[1D", iteration % 10);
+		print!(" {}\x1B[1D\x1B[1D", iteration % 10);
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
@@ -320,7 +320,7 @@ pub fn main() {
 	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
 	
 	let mut index: usize = 0;
-	print!("Secret {} at address {:?}\nGot: ", SECRET, SECRET.as_ptr());
+	print!("Secret {} at address {:?}\nGot:   ", SECRET, SECRET.as_ptr());
 	
 	while index < SECRET.len() {
 		let pointer = SECRET[index..index].as_ptr();
