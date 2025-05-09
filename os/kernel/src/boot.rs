@@ -16,7 +16,6 @@ use crate::interrupt::interrupt_dispatcher;
 use crate::memory::nvmem::Nfit;
 use crate::memory::pages::page_table_index;
 use crate::memory::{MemorySpace, PAGE_SIZE, nvmem};
-use crate::storage::block_device;
 use crate::network::rtl8139;
 use crate::process::thread::Thread;
 use crate::syscall::syscall_dispatcher;
@@ -260,32 +259,28 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // Initialize network stack
     network::init();
 
-    match block_device("ata0") {
-        Some(drive) => {
-            let mut buffer = [0; 8192];
-            
-            // Fill buffer with some data
-            for i in 0..8192 {
-                buffer[i] = i as u8;
-            }
-            // Write data to the third sector of the drive
-            drive.write(3, 16, &mut buffer);
+    let drive = storage::block_device("ata0").unwrap();
+    let mut buffer = [0; 8192];
 
-            // Fill buffer with zeroes
-            for i in 0..8192 {
-                buffer[i] = 0;
-            }
-            // Read data from the third sector of the drive
-            drive.read(3, 16, &mut buffer);
+    // Fill buffer with some data
+    for i in 0..8192 {
+        buffer[i] = i as u8;
+    }
+    // Write data to the third sector of the drive
+    drive.write(3, 16, &mut buffer);
 
-            // Check integrity of read data
-            for i in 0..8192 {
-                if buffer[i] != (i as u8) {
-                    panic!("Data integrity check failed!");
-                }
-            }
-        },
-        None => info!("No ata0 drive found, skipping drive tests."),
+    // Fill buffer with zeroes
+    for i in 0..8192 {
+        buffer[i] = 0;
+    }
+    // Read data from the third sector of the drive
+    drive.read(3, 16, &mut buffer);
+
+    // Check integrity of read data
+    for i in 0..8192 {
+        if buffer[i] != (i as u8) {
+            panic!("Data integrity check failed!");
+        }
     }
 
     // Set up network interface for emulated QEMU network (IP: 10.0.2.15, Gateway: 10.0.2.2)
