@@ -36,7 +36,7 @@ use crate::consts::MAIN_USER_STACK_START;
 use crate::consts::MAX_USER_STACK_SIZE;
 use crate::consts::{KERNEL_STACK_PAGES, USER_SPACE_ENV_START};
 use crate::memory::kstack::StackAllocator;
-use crate::memory::vmm::{VirtualMemoryArea, VmaType};
+use crate::memory::vmm::VmaType;
 use crate::memory::{MemorySpace, PAGE_SIZE};
 use crate::process::process::Process;
 use crate::process::scheduler;
@@ -44,11 +44,10 @@ use crate::syscall::syscall_dispatcher::CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX;
 use crate::signal::signal_dispatcher;
 use signal::signal_vector::SignalVector;
 use crate::{memory, process_manager, scheduler, tss};
-use alloc::rc::Rc;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::arch::naked_asm;
-use core::{mem, ptr};
+use core::ptr;
 use goblin::elf::Elf;
 use goblin::elf64;
 use log::info;
@@ -108,7 +107,7 @@ impl Signals {
 impl Thread {
     /// Create a kernel thread. Not started yet, nor registered in the scheduler. \
     /// `entry` is the thread entry function.
-    pub fn new_kernel_thread(entry: fn(), tag_str: &str) -> Rc<Thread> {
+    pub fn new_kernel_thread(entry: fn(), tag_str: &str) -> Arc<Thread> {
         // alocate frames for kernel stack
         let kernel_stack = Vec::<u64, StackAllocator>::with_capacity_in(
             (KERNEL_STACK_PAGES * PAGE_SIZE) / 8,
@@ -146,13 +145,13 @@ impl Thread {
         };
 
         thread.prepare_kernel_stack();
-        Rc::new(thread)
+        Arc::new(thread)
     }
 
     /// Load application code from `elf_buffer`, create a process with a main thread. \
     /// `name` is the name of the application, `args` are the arguments passed to the application. \
     /// Returns the main thread of the application which is not yet registered in the scheduler.
-    pub fn load_application(elf_buffer: &[u8], name: &str, args: &Vec<&str>) -> Rc<Thread> {
+    pub fn load_application(elf_buffer: &[u8], name: &str, args: &Vec<&str>) -> Arc<Thread> {
         let process = process_manager().write().create_process();
         //let address_space = process.address_space();
 
@@ -305,7 +304,7 @@ impl Thread {
         info!("***ms thread");
 
         thread.prepare_kernel_stack();
-        Rc::new(thread)
+        Arc::new(thread)
     }
 
     /// Create user thread. Not started yet, nor registered in the scheduler. \
@@ -316,7 +315,7 @@ impl Thread {
         parent: Arc<Process>,
         kickoff_addr: VirtAddr,
         entry: fn(),
-    ) -> Rc<Thread> {
+    ) -> Arc<Thread> {
         // alloc memory for kernel stack
         let kernel_stack = Vec::<u64, StackAllocator>::with_capacity_in(
             (KERNEL_STACK_PAGES * PAGE_SIZE) / 8,
@@ -373,7 +372,7 @@ impl Thread {
         info!("Created user stack for thread: {:x?}", user_stack_pages);
 
         thread.prepare_kernel_stack();
-        Rc::new(thread)
+        Arc::new(thread)
     }
 
     /// Called first for both a new kernel and a new user thread
@@ -618,8 +617,7 @@ impl Thread {
 }
 
 /// Low-level function for starting a thread in kernel mode
-#[naked]
-#[allow(unsafe_op_in_unsafe_fn)]
+#[unsafe(naked)]
 unsafe extern "C" fn thread_kernel_start(old_rsp0: u64) {
     naked_asm!(
         "mov rsp, rdi", // First parameter -> load 'old_rsp0'
@@ -645,8 +643,7 @@ unsafe extern "C" fn thread_kernel_start(old_rsp0: u64) {
 }
 
 /// Low-level function for starting a thread in user mode
-#[naked]
-#[allow(unsafe_op_in_unsafe_fn)]
+#[unsafe(naked)]
 #[allow(improper_ctypes_definitions)] // 'entry' takes no arguments and has no return value, so we just assume that the "C" and "Rust" ABIs act the same way in this case
 unsafe extern "C" fn thread_user_start(old_rsp0: u64, entry: fn()) {
     naked_asm!(
@@ -657,14 +654,8 @@ unsafe extern "C" fn thread_user_start(old_rsp0: u64, entry: fn()) {
 }
 
 /// Low-level thread switching function
-#[naked]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe extern "C" fn thread_switch(
-    current_rsp0: *mut u64,
-    next_rsp0: u64,
-    next_rsp0_end: u64,
-    next_cr3: u64,
-) {
+#[unsafe(naked)]
+unsafe extern "C" fn thread_switch(current_rsp0: *mut u64, next_rsp0: u64, next_rsp0_end: u64, next_cr3: u64) {
     naked_asm!(
     // Save registers of current thread
     "pushf",
