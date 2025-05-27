@@ -153,7 +153,7 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
 			} else {
-				println!("Continuing after signal handler!");
+				print!(" c\x1b[1D\x1b[1D");
 				jump_buf.force_unlock();
 			}
 		}
