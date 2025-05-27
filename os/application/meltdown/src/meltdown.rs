@@ -319,7 +319,7 @@ pub fn main() {
 	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
 	
 	const secret_string: &str = "Whoever reads this is dumb.";
-	const SECRET: *const u8 = secret_string.as_ptr();
+	const SECRET: *const u8 = 0x5418a4 as *const u8;
 	
 	let mut index: usize = 0;
 	print!("Trying to read secret from address {:?}.\nGot: ", SECRET);
