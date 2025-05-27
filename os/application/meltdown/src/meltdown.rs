@@ -11,7 +11,7 @@ use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use signal::signal_vector::SignalVector;
 use signal::signal_handler::SignalHandler;
 use syscall::syscall;
-use syscall::SystemCall::{SignalHandlerRegister, ThreadSwitch};
+use syscall::SystemCall::{SignalHandlerRegister, ThreadSwitch, MeltdownCopyToKernelMemory};
 use concurrent::thread;
 
 use core::arch::asm;
@@ -319,7 +319,7 @@ pub fn main() {
 	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
 	
 	const secret_string: &str = "Whoever reads this is dumb.";
-	const SECRET: *const u8 = 0x541774 as *const u8;
+	let SECRET = syscall(MeltdownCopyToKernelMemory, &[secret_string.as_ptr() as usize, secret_string.len() as usize]).expect("Syscall did not return value of secret in kernel space!") as *const u8;
 	
 	let mut index: usize = 0;
 	print!("Trying to read secret from address {:?}.\nGot: ", SECRET);

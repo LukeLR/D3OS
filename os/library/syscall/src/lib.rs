@@ -43,6 +43,7 @@ pub enum SystemCall {
     Cwd,
     Cd,
     SignalHandlerRegister,
+    MeltdownCopyToKernelMemory,
     // no syscall, just marking last number, see NUM_SYSCALLS
     // insert any new system calls before this marker
     LastEntryMarker,
