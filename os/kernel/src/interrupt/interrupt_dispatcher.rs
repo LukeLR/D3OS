@@ -216,32 +216,13 @@ fn handle_page_fault(frame: InterruptStackFrame, _index: u8, error: Option<u64>)
     if !thread.is_kernel_thread() && !thread.stacks_locked() && fault_addr > (thread.user_stack_start() - PAGE_SIZE as u64) && fault_addr < thread.user_stack_start() {
         thread.grow_user_stack(); // Grow stack by one page
     } else {
-        panic!("Page Fault!\nError code: [{:?}]\nAddress: [0x{:0>16x}]\n{:?}", error, fault_addr, frame);
+        scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, frame);
     }
 }
 
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
     println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
-    let handle_signal;
-    
-    match scheduler().current_thread().process().signal_dispatcher.get(SignalVector::SIGSEGV) {
-        Some(address) => handle_signal = address,
-        None => handle_signal = 0,
-    }
-    
-    unsafe {
-        frame.as_mut().update(|frame| {
-            let stack_pointer: *mut u64 = frame.stack_pointer.as_mut_ptr();
-            
-            stack_pointer.write(frame.instruction_pointer.as_u64());
-            frame.stack_pointer -= 8;
-            frame.instruction_pointer = VirtAddr::new(handle_signal as u64);
-        });
-    }
-    //println!("Updated rip, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
-    scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
-    // When signals aren't handled immediately, we need to switch threads after setting the pending signal
-    //scheduler().switch_thread_from_interrupt();
+    scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, frame);
 }
 
 fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>) {

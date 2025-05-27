@@ -9,6 +9,9 @@ use core::result::Result::{Ok, Err};
 use core::marker::{Sync, Send};
 use core::option::Option::Some;
 use signal::signal_vector::{SignalVector, MAX_VECTORS};
+use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::VirtAddr;
+use crate::scheduler;
 
 pub struct SignalDispatcher {
     int_vectors: Vec<Mutex<u64>>,
@@ -38,19 +41,27 @@ impl SignalDispatcher {
         }
     }
 
-    /*pub fn dispatch(&self, signal: u8) {
-        let handler_vec_mutex = self.int_vectors.get(signal as usize).unwrap_or_else(|| panic!("Signal Dispatcher: No handler vec assigned for signal [{}]!", signal));
-        let handler_vec = handler_vec_mutex.try_lock();
-        // TODO: Do we need to force unlock here?
-
-        if handler_vec.iter().is_empty() {
-            panic!("Signal Dispatcher: No handler registered for signal [{}]!", signal);
-        }
-
-        for handler in handler_vec.unwrap().iter_mut() {
-            handler.trigger();
-        }
-    }*/
+	pub fn dispatch(&self, signal: SignalVector, mut frame: InterruptStackFrame) {
+		let handle_signal;
+		match self.get(signal) {
+			Some(address) => handle_signal = address,
+			None => handle_signal = 0,
+		}
+		
+		unsafe {
+			frame.as_mut().update(|frame| {
+				let stack_pointer: *mut u64 = frame.stack_pointer.as_mut_ptr();
+				
+				stack_pointer.write(frame.instruction_pointer.as_u64());
+				frame.stack_pointer -= 8;
+				frame.instruction_pointer = VirtAddr::new(handle_signal as u64);
+			});
+		}
+		//println!("Updated rip, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
+		scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
+		// When signals aren't handled immediately, we need to switch threads after setting the pending signal
+		//scheduler().switch_thread_from_interrupt();
+	}
     
     pub fn get(&self, vector: SignalVector) -> Option<u64> {
         match self.int_vectors.get(vector as usize) {
