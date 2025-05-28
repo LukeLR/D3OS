@@ -320,10 +320,9 @@ pub fn main() {
 	
 	const secret_string: &str = "Whoever reads this is dumb.";
 	let SECRET = syscall(MeltdownCopyToKernelMemory, &[secret_string.as_ptr() as usize, secret_string.len() as usize]).expect("Syscall did not return value of secret in kernel space!") as *const u8;
-	
-	let mut index: usize = 0;
 	print!("Trying to read secret from address {:?}.\nGot: ", SECRET);
 	
+	let mut index: usize = 0;
 	while index < secret_string.len() {
 		let pointer;
 		unsafe {
