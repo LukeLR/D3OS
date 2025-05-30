@@ -16,14 +16,14 @@ use signal::signal_vector::SignalVector;
 
 pub fn sys_meltdown_copy_to_kernel_memory(string_content: *mut u8, string_len: usize) -> *const u8 {
     let string = unsafe {
-        let slice = slice::from_raw_parts(string_content, string_len);
-        str::from_utf8(slice).expect("Could not construct string from user memory")
+        Box::new(String::from_raw_parts(string_content, string_len, string_len))
     };
     
     println!("Copying {} to kernel memory", string);
-    let string_clone = string.clone();
+    let string_clone = Box::new(string.clone());
     
     println!("received string_content at {:p}, constructed old_address: {:p}, ptr: {:p}, new_address: {:p}, ptr: {:p}", string_content, &string, string.as_ptr(), &string_clone, string_clone.as_ptr());
     
-    return string_clone.as_ptr();
+    Box::leak(string); // Prevent calling drop on string, which is user memory and needs to be dropped by userspace
+    return Box::into_raw(string_clone) as *const u8;
 }
