@@ -21,9 +21,11 @@ pub fn sys_meltdown_copy_to_kernel_memory(string_content: *mut u8, string_len: u
     
     println!("Copying {} to kernel memory", string);
     let string_clone = Box::new(string.clone());
+    let string_clone_ptr = string_clone.as_ptr();
     
-    println!("received string_content at {:p}, constructed old_address: {:p}, ptr: {:p}, new_address: {:p}, ptr: {:p}", string_content, &string, string.as_ptr(), &string_clone, string_clone.as_ptr());
+    println!("received string_content at {:p}, constructed old_address: {:p}, ptr: {:p}, new_address: {:p}, ptr: {:p}", string_content, &string, string.as_ptr(), &string_clone, string_clone_ptr);
     
     Box::leak(string); // Prevent calling drop on string, which is user memory and needs to be dropped by userspace
-    return Box::into_raw(string_clone) as *const u8;
+    Box::leak(string_clone); // We also want the box contents to live on for accessing it from userspace
+    return string_clone_ptr as *const u8;
 }
