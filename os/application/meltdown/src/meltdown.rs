@@ -175,6 +175,7 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 		}
 		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
 	}
+	println!("All values were 0");
 	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
 }
 
@@ -319,7 +320,7 @@ pub fn main() {
 	println!("Current CPU time: {}", rdtsc());
 	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
 	
-	const secret_string: &str = "This is kernel memory read from userspace.";
+	const secret_string: &str = "Whoever reads this is dumb.";
 	let SECRET = syscall(MeltdownCopyToKernelMemory, &[secret_string.as_ptr() as usize, secret_string.len() as usize]).expect("Syscall did not return value of secret in kernel space!") as *const u8;
 	print!("Trying to read secret from address {:?}.\nGot: ", SECRET);
 	
