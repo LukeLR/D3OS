@@ -41,11 +41,11 @@ impl SignalDispatcher {
         }
     }
 
-	pub fn dispatch(&self, signal: SignalVector, mut frame: InterruptStackFrame) {
+	pub fn dispatch(&self, signal: SignalVector, frame: &mut InterruptStackFrame) {
 		let handle_signal;
 		match self.get(signal) {
 			Some(address) => handle_signal = address,
-			None => handle_signal = 0,
+			None => return
 		}
 		
 		unsafe {
