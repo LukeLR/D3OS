@@ -72,6 +72,10 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
     let a3 = *args.get(3).unwrap_or(&0usize);
     let a4 = *args.get(4).unwrap_or(&0usize);
     let a5 = *args.get(5).unwrap_or(&0usize);
+    
+    match call {
+        ref TerminalWrite => try_read(a0 as *const u8, a1),
+    }
 
     unsafe {
         asm!(
@@ -89,4 +93,16 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
     }
 
     convert_ret_code_to_syscall_result(ret_code)
+}
+
+fn try_read(address: *const u8, len: usize) {
+    for i in 0..len {
+        unsafe {
+            asm!(
+                "mov {tmp}, [{x}]",
+                x = in(reg) address.add(i),
+                tmp = out(reg) _,
+            );
+        }
+    }
 }
