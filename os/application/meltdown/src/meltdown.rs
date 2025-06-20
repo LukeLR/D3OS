@@ -181,6 +181,7 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 		}
 		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
 	}
+	println!("All values were 0");
 	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
 }
 
@@ -338,12 +339,16 @@ pub fn main() {
 	
 	unsafe {
 		if setjmp(&mut *jump_buf_direct_read.lock()) == 0 {
-			println!("{}", secret_string_kernel);
+			//println!("{}", secret_string_kernel);
 			println!("No segmentation fault!");
 		} else {
 			println!("Got segmentation fault!");
 		}
 	}
+	
+	// Prevent using this buffer again, as we're past that now
+	// TODO: This could be less hacky
+	let lock = jump_buf_direct_read.lock();
 	
 	print!("Trying to read secret from address {:?} using meltdown...\nExpected: {}\n     Got: ", SECRET, secret_string);
 	
