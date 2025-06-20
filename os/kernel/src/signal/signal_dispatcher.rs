@@ -41,11 +41,12 @@ impl SignalDispatcher {
         }
     }
 
-	pub fn dispatch(&self, signal: SignalVector, frame: &mut InterruptStackFrame) {
+	pub fn dispatch(&self, signal: SignalVector, frame: &mut InterruptStackFrame) -> Result<(), ()> {
+		println!("Dispatching signal");
 		let handle_signal;
 		match self.get(signal) {
 			Some(address) => handle_signal = address,
-			None => return
+			None => return Err(()),
 		}
 		
 		unsafe {
@@ -61,6 +62,7 @@ impl SignalDispatcher {
 		scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
 		// When signals aren't handled immediately, we need to switch threads after setting the pending signal
 		//scheduler().switch_thread_from_interrupt();
+		return Ok(());
 	}
     
     pub fn get(&self, vector: SignalVector) -> Option<u64> {
