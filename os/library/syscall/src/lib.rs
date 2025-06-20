@@ -73,8 +73,9 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
     let a4 = *args.get(4).unwrap_or(&0usize);
     let a5 = *args.get(5).unwrap_or(&0usize);
     
-    match call {
-        ref TerminalWrite => try_read(a0 as *const u8, a1),
+    match &call {
+        SystemCall::TerminalWrite => try_read(a0 as *const u8, a1),
+        _ => {},
     }
 
     unsafe {
@@ -95,6 +96,10 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
     convert_ret_code_to_syscall_result(ret_code)
 }
 
+/* SECURITY: This can be skipped by using the syscall instruction directly
+ *           instead of using this library function. Proper permission
+ *           checking needs to be moved to kernel space instead.
+ */
 fn try_read(address: *const u8, len: usize) {
     for i in 0..len {
         unsafe {
