@@ -246,10 +246,10 @@ fn handle_page_fault(mut frame: InterruptStackFrame, _index: u8, error: Option<u
         }
     }
     
-    if let Err(()) = scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
+    if let Err(()) = thread.process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
         panic!("Page Fault!\nError code: [{:?}]\nAddress: [0x{:0>16x}]\n{:?}", error, fault_addr, frame);
     }
-    
+    //println!("Reached end of handle_page_fault for thread {}!", thread.id());
 }
 
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
