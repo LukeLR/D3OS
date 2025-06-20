@@ -145,7 +145,11 @@ impl SignalHandler for SegfaultHandler {
 pub fn handle_signal() {
 	unsafe {
 		println!("handle_signal");
-		longjmp(&mut *jump_buf.lock(), 1);
+		if let Some(ref mut buf) = jump_buf_direct_read.try_lock() {
+			longjmp(&mut *buf, 1);
+		} else {
+			longjmp(&mut *jump_buf.lock(), 1);
+		}
 	}
 }
 
@@ -338,7 +342,6 @@ pub fn main() {
 			println!("No segmentation fault!");
 		} else {
 			println!("Got segmentation fault!");
-			jump_buf_direct_read.force_unlock();
 		}
 	}
 	
