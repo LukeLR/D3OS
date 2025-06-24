@@ -180,7 +180,6 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 		}
 		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
 	}
-	println!("All values were 0");
 	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
 }
 
