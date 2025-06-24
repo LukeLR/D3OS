@@ -23,9 +23,9 @@ fn print_dir_entry(dentry: DirEntry) {
     }
 }
 
-fn process_ls(path: &str) {
+fn process_ls(path: &String) {
     // open directory
-    let res = naming::open(path, OpenOptions::DIRECTORY);
+    let res = naming::open(&path, OpenOptions::DIRECTORY);
     if res.is_err() {
         print_usage();
         return;

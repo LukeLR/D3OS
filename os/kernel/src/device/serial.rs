@@ -257,7 +257,7 @@ impl OutputStream for SerialPort {
 
     fn write_str(&self, string: &str) {
         for b in string.bytes() {
-            if b == b'\n' {
+            if b == '\n' as u8 {
                 self.write_str("\r");
             }
 

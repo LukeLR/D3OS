@@ -8,7 +8,6 @@ use runtime::*;
 use terminal::{print, println};
 use alloc::slice;
 
-
 #[unsafe(no_mangle)]
 pub fn main() {
     let process = process::current().unwrap();
@@ -20,16 +19,6 @@ pub fn main() {
     let args = env::args();
     for arg in args {
         println!("  {}", arg);
-    }
-    
-    let v = thread::create(|| {
-        println!("Hello from the second thread!");
-    });
-    if let Some(v) = v {
-        println!("Second thread created successfully.");
-        v.join();
-    } else {
-        println!("Failed to create second thread");
     }
     
     unsafe {

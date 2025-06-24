@@ -50,7 +50,7 @@ impl ConfigRegionAccess for ConfigurationSpace {
 
         unsafe {
             Self::prepare_access(&mut ports, address, offset);
-            ports.data_port.read()
+            return ports.data_port.read();
         }
     }
 
@@ -86,7 +86,7 @@ impl PciBus {
         }
 
 
-        pci
+        return pci;
     }
 
     #[inline(always)]

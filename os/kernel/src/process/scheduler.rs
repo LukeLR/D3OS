@@ -17,7 +17,6 @@ use core::sync::atomic::Ordering::Relaxed;
 use smallmap::Map;
 use spin::{Mutex, MutexGuard};
 
-
 // thread IDs
 static THREAD_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
@@ -102,7 +101,6 @@ impl Scheduler {
 
     /// Description: Start the scheduler, called only once from `boot.rs` 
     pub fn start(&self) {
-        // TODO: make sure this is actually called just once
         let mut state = self.get_ready_state();
         state.current_thread = state.ready_queue.pop_back();
 
@@ -146,12 +144,8 @@ impl Scheduler {
         let mut state = self.get_ready_state();
 
         if !state.initialized {
-            // Scheduler is not initialized yet, so this function has been called during the boot process
-            // So we do active waiting
             timer().wait(ms);
-        } 
-        else {
-            // Scheduler is initialized, so we can block the calling thread
+        } else {
             let thread = Scheduler::current(&state);
             let wakeup_time = timer().systime_ms() + ms;
             
@@ -181,19 +175,16 @@ impl Scheduler {
                 Scheduler::check_sleep_list(&mut state, &mut sleep_list);
             }
 
-            // Get clone of the current thread
             let current = Scheduler::current(&state);
+            let next = match state.ready_queue.pop_back() {
+                Some(thread) => thread,
+                None => return,
+            };
 
             // Current thread is initializing itself and may not be interrupted
             if current.stacks_locked() || tss().is_locked() {
                 return;
             }
-
-            // Try to get the next thread from the ready queue
-            let next = match state.ready_queue.pop_back() {
-                Some(thread) => thread,
-                None => return,
-            };
 
             let current_ptr = ptr::from_ref(current.as_ref());
             let next_ptr = ptr::from_ref(next.as_ref());
@@ -233,8 +224,9 @@ impl Scheduler {
         {
             // Execute in own block, so that the lock is released automatically (block() does not return)
             let mut join_map = self.join_map.lock();
-            if let Some(join_list) = join_map.get_mut(&thread_id) {
-                join_list.push(thread);
+            let join_list = join_map.get_mut(&thread_id);
+            if join_list.is_some() {
+                join_list.unwrap().push(thread);
             } else {
                 // Joining on a non-existent thread has no effect (i.e. the thread has already finished running)
                 return;
@@ -245,7 +237,7 @@ impl Scheduler {
     }
 
     /// Description: Exit calling thread.
-    pub fn exit(&self) -> ! {
+    pub fn exit(&self) {
         let mut ready_state;
         let current;
 
@@ -267,7 +259,6 @@ impl Scheduler {
 
         drop(current); // Decrease Rc manually, because block() does not return
         self.block(&mut ready_state);
-        unreachable!()
     }
 
     /// 
@@ -318,7 +309,7 @@ impl Scheduler {
             }
         }
 
-        let current = Scheduler::current(state);
+        let current = Scheduler::current(&state);
         let next = next_thread.unwrap();
 
         // Thread has enqueued itself into sleep list and waited so long, that it dequeued itself in the meantime
@@ -348,10 +339,10 @@ impl Scheduler {
         sleep_list.retain(|entry| {
             if time >= entry.1 {
                 state.ready_queue.push_front(Arc::clone(&entry.0));
-                false
-            } else {
-                true
+                return false;
             }
+
+            return true;
         });
     }
 
@@ -379,8 +370,10 @@ impl Scheduler {
     fn get_ready_state_and_join_map(&self) -> (MutexGuard<ReadyState>, MutexGuard<Map<usize, Vec<Arc<Thread>>>>) {
         loop {
             let ready_state = self.get_ready_state();
-            if let Some(join_map) = self.join_map.try_lock() {
-                return (ready_state, join_map);
+            let join_map = self.join_map.try_lock();
+
+            if join_map.is_some() {
+                return (ready_state, join_map.unwrap());
             } else {
                 self.switch_thread_no_interrupt();
             }

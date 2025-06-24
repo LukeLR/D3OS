@@ -39,7 +39,8 @@ pub fn main() {
     println!("read result = {:?}", res);
     if res.is_ok() {
         let len = res.unwrap();
-        for (i, byte) in rbuff.iter().enumerate() {
+        let mut i = 0;
+        for byte in &rbuff {
             if i >= len {
                 break;
             }
@@ -48,6 +49,7 @@ pub fn main() {
             } else {
                 print!(".");
             }
+            i = i + 1;
         }
     }
     println!("");
