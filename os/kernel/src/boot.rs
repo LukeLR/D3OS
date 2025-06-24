@@ -60,8 +60,6 @@ use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::page::PageRange;
 use x86_64::structures::paging::{Page, PageTable, PageTableFlags, PhysFrame};
 use x86_64::{PhysAddr, VirtAddr};
-use alloc::string::String;
-use alloc::slice;
 
 // import labels from linker script 'link.ld'
 unsafe extern "C" {
@@ -373,15 +371,8 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // Dump information about all processes (including VMAs) 
     process_manager().read().dump();
     
-    let mut test_string = String::new();
-    test_string.push_str("Hello from the kernel!");
-    info!("Test String: {}, Address: 0x{:x}", test_string, test_string.as_ptr() as u64);
-
-    unsafe {
-        let test_slice = slice::from_raw_parts(test_string.as_ptr(), test_string.len());
-        let test_str = str::from_utf8(test_slice).unwrap();
-        info!("Test str: {}, Address: 0x{:x}", test_str, test_str.as_ptr() as u64);
-    }
+    let meltdown_secret = "This is a secret string in kernel memory.";
+    info!("meltdown_secret {} at address {:p}", meltdown_secret, meltdown_secret.as_ptr());
 
     // Start APIC timer & scheduler
     info!("Starting scheduler");
