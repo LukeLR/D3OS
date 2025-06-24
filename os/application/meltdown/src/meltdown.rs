@@ -144,7 +144,6 @@ impl SignalHandler for SegfaultHandler {
 // Debugging only, to be replaced by a struct with SignalHandler trait
 pub fn handle_signal() {
 	unsafe {
-		println!("handle_signal");
 		if let Some(ref mut buf) = jump_buf_direct_read.try_lock() {
 			longjmp(&mut *buf, 1);
 		} else {
