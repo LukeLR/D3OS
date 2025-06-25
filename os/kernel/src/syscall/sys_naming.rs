@@ -17,11 +17,11 @@ use num_enum::FromPrimitive;
 
 use crate::naming::api;
 
-pub unsafe fn sys_open(path: *const u8, flags: OpenOptions) -> isize {
-    return_vals::convert_syscall_result_to_ret_code(api::open(&unsafe { ptr_to_string(path).unwrap() }, flags))
+pub fn sys_open(path: *const u8, flags: OpenOptions) -> isize {
+    return_vals::convert_syscall_result_to_ret_code(api::open(&ptr_to_string(path).unwrap(), flags))
 }
 
-pub unsafe fn sys_read(fh: usize, buffer: *mut u8, buffer_length: usize) -> isize {
+pub fn sys_read(fh: usize, buffer: *mut u8, buffer_length: usize) -> isize {
     if buffer.is_null() || buffer_length == 0 {
         return Errno::EINVAL as isize;
     }
@@ -32,7 +32,7 @@ pub unsafe fn sys_read(fh: usize, buffer: *mut u8, buffer_length: usize) -> isiz
     return_vals::convert_syscall_result_to_ret_code(api::read(fh, buf))
 }
 
-pub unsafe fn sys_write(fh: usize, buffer: *const u8, buffer_length: usize) -> isize {
+pub fn sys_write(fh: usize, buffer: *const u8, buffer_length: usize) -> isize {
     if buffer.is_null() || buffer_length == 0 {
         return Errno::EINVAL as isize;
     }
@@ -51,16 +51,16 @@ pub fn sys_close(fh: usize) -> isize {
     return_vals::convert_syscall_result_to_ret_code(api::close(fh))
 }
 
-pub unsafe fn sys_mkdir(path: *const u8) -> isize {
-    return_vals::convert_syscall_result_to_ret_code(api::mkdir(&unsafe { ptr_to_string(path).unwrap() }))
+pub fn sys_mkdir(path: *const u8) -> isize {
+    return_vals::convert_syscall_result_to_ret_code(api::mkdir(&ptr_to_string(path).unwrap()))
 }
 
-pub unsafe fn sys_touch(path: *const u8) -> isize {
-    return_vals::convert_syscall_result_to_ret_code(api::touch(&unsafe { ptr_to_string(path).unwrap() }))
+pub fn sys_touch(path: *const u8) -> isize {
+    return_vals::convert_syscall_result_to_ret_code(api::touch(&ptr_to_string(path).unwrap()))
 }
 
 /// Convert a raw pointer resulting from a CString to a UTF-8 String
-unsafe fn ptr_to_string(ptr: *const u8) -> Result<String, Errno> {
+fn ptr_to_string(ptr: *const u8) -> Result<String, Errno> {
     if ptr.is_null() {
         return Err(Errno::EBADSTR);
     }
@@ -80,17 +80,16 @@ unsafe fn ptr_to_string(ptr: *const u8) -> Result<String, Errno> {
     }   
 }
 
-pub unsafe fn sys_readdir(fh: usize, buffer: *mut u8, buffer_length: usize) -> isize {
+pub fn sys_readdir(fh: usize, buffer: *mut u8, buffer_length: usize) -> isize {
     if buffer.is_null() || buffer_length == 0 || buffer_length <  mem::size_of::<RawDirent>() {
         return Errno::EINVAL as isize;
     }
-    let dentry_ptr = buffer as *mut RawDirent;
-    let dentry = unsafe { dentry_ptr.as_mut() };
+    let dentry = buffer as *mut RawDirent;
     return_vals::convert_syscall_result_to_ret_code(api::readdir(fh, dentry))
 }
 
 
-pub unsafe fn sys_cwd(buffer: *mut u8, buffer_length: usize) -> isize {
+pub fn sys_cwd(buffer: *mut u8, buffer_length: usize) -> isize {
     if buffer.is_null() || buffer_length == 0 {
         return Errno::EINVAL as isize;
     }
@@ -101,6 +100,6 @@ pub unsafe fn sys_cwd(buffer: *mut u8, buffer_length: usize) -> isize {
     return_vals::convert_syscall_result_to_ret_code(api::cwd(buf))
 }
 
-pub unsafe fn sys_cd(path: *const u8) -> isize {
-    return_vals::convert_syscall_result_to_ret_code(api::cd(&unsafe {ptr_to_string(path)}.unwrap()))
+pub fn sys_cd(path: *const u8) -> isize {
+    return_vals::convert_syscall_result_to_ret_code(api::cd(&ptr_to_string(path).unwrap()))
 }

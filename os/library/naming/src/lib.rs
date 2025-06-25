@@ -26,44 +26,50 @@ use syscall::{SystemCall, return_vals::Errno, syscall};
 
 pub fn open(path: &str, flags: OpenOptions) -> Result<usize, Errno> {
     match CString::new(path) {
-        Ok(c_path) => syscall(SystemCall::Open, &[
-            c_path.as_bytes().as_ptr() as usize,
-            flags.bits(),
-        ]),
+        Ok(c_path) => {
+            return syscall(SystemCall::Open, &[
+                c_path.as_bytes().as_ptr() as usize,
+                flags.bits(),
+            ]);
+        }
         Err(_) => Err(Errno::EBADSTR),
     }
 }
 
 pub fn write(fh: usize, buf: &[u8]) -> Result<usize, Errno> {
-    syscall(SystemCall::Write, &[fh, buf.as_ptr() as usize, buf.len()])
+    return syscall(SystemCall::Write, &[fh, buf.as_ptr() as usize, buf.len()]);
 }
 
 pub fn read(fh: usize, buf: &mut [u8]) -> Result<usize, Errno> {
-    syscall(SystemCall::Read, &[
+    return syscall(SystemCall::Read, &[
         fh,
         buf.as_mut_ptr() as usize,
         buf.len(),
-    ])
+    ]);
 }
 
 pub fn seek(fh: usize, offset: usize, origin: SeekOrigin) -> Result<usize, Errno> {
-    syscall(SystemCall::Seek, &[fh, offset, origin.into()])
+    return syscall(SystemCall::Seek, &[fh, offset, origin.into()]);
 }
 
 pub fn close(fh: usize) -> Result<usize, Errno> {
-    syscall(SystemCall::Close, &[fh])
+    return syscall(SystemCall::Close, &[fh]);
 }
 
 pub fn mkdir(path: &str) -> Result<usize, Errno> {
     match CString::new(path) {
-        Ok(c_path) => syscall(SystemCall::MkDir, &[c_path.as_bytes().as_ptr() as usize]),
+        Ok(c_path) => {
+            return syscall(SystemCall::MkDir, &[c_path.as_bytes().as_ptr() as usize]);
+        }
         Err(_) => Err(Errno::EBADSTR),
     }
 }
 
 pub fn touch(path: &str) -> Result<usize, Errno> {
     match CString::new(path) {
-        Ok(c_path) => syscall(SystemCall::Touch, &[c_path.as_bytes().as_ptr() as usize]),
+        Ok(c_path) => {
+            return syscall(SystemCall::Touch, &[c_path.as_bytes().as_ptr() as usize]);
+        }
         Err(_) => Err(Errno::EBADSTR),
     }
 }
@@ -76,8 +82,13 @@ pub fn readdir(fh: usize) -> Result<Option<DirEntry>, Errno> {
         mem::size_of::<RawDirent>(),
     ]);
     match ret {
-        Ok(0) => Ok(None),
-        Ok(_) => Ok(DirEntry::from_dirent(&raw_dirent).clone()),
+        Ok(rescode) => {
+            if rescode == 0 {
+                return Ok(None);
+            } else {
+                return Ok(DirEntry::from_dirent(&raw_dirent).clone());
+            }
+        }
         Err(e) => Err(e),
     }
 }
@@ -120,7 +131,7 @@ pub fn cwd() -> Result<String, Errno> {
                 .take_while(|&&c| c != 0) // Stop at the null terminator
                 .map(|&c| c as char)
                 .collect::<String>();
-            Ok(name)
+            return Ok(name);
         },
         Err(e) => Err(e),
     }
@@ -128,7 +139,9 @@ pub fn cwd() -> Result<String, Errno> {
 
 pub fn cd(path: &str) -> Result<usize, Errno> {
     match CString::new(path) {
-        Ok(c_path) => syscall(SystemCall::Cd, &[c_path.as_bytes().as_ptr() as usize]),
+        Ok(c_path) => {
+            return syscall(SystemCall::Cd, &[c_path.as_bytes().as_ptr() as usize]);
+        }
         Err(_) => Err(Errno::EBADSTR),
     }
 }

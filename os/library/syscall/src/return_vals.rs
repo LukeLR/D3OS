@@ -42,8 +42,11 @@ pub fn convert_ret_code_to_syscall_result(ret_code: isize) -> SyscallResult {
 
 /// Description: convert a syscall result to a return code
 pub fn convert_syscall_result_to_ret_code(syscall_result: SyscallResult) -> isize {
+    let ret_val: isize;
     match syscall_result {
-        Ok(t) => t as isize,
-        Err(e) => e.into(),
+        Ok(t) => ret_val = t as isize,
+        Err(e) => ret_val = e.into(),
     }
+
+    ret_val
 }

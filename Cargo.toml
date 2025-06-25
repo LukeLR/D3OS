@@ -3,7 +3,6 @@ resolver = "2"
 
 members = [
     "os/kernel",
-    "os/application/about",
     "os/application/hello",
     "os/application/helloc",
     "os/application/shell",
@@ -13,7 +12,6 @@ members = [
     "os/application/meltdown",
     "os/application/alloctest",
     "os/application/ls",
-    "os/application/heaptest",
     "os/application/ntest"
 ]
 
