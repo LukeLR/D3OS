@@ -336,6 +336,28 @@ fn mem_thread() {
 	}
 }
 
+enum LoadThreadKind {
+	PrintThread,
+	NopThread,
+	YieldThread,
+	LoadThread,
+	MemThread,
+}
+
+impl TryFrom<&str> for LoadThreadKind {
+	type Error = ();
+
+	fn try_from(value: &str) -> Result<Self, Self::Error> {
+		match value {
+			"PrintThread" => LoadThreadKind::PrintThread,
+			"NopThread" => LoadThreadKind::NopThread,
+			"YieldThread" => LoadThreadKind::YieldThread,
+			"LoadThread" => LoadThreadKind::LoadThread,
+			"MemThread" => LoadThreadKind::MemThread,
+			&_ => Err(),
+		}
+    }
+}
 
 #[unsafe(no_mangle)]
 pub fn main() {
@@ -344,11 +366,17 @@ pub fn main() {
 	let args = env::args();
 	let mut print_chars = false;
 	let mut load_threads = 0;
+	let mut load_thread_kind = LoadThreadKind::LoadThread;
 	loop {
 		if let Some(arg) = args.next() {
 			match arg.as_str() {
 				"-c" | "--print-chars" => print_chars = true,
-				"-l" | "--load-threads" => load_threads = args.next().expect("--load-threads requires an argument").parse::<u8>().expect("--load-threads requires a positive integer < 256"),
+				"-l" | "--load-threads" => {
+					let load_threads_arg = args.next().expect("--load-threads requires an argument for load thread cound");
+					load_threads = load_threads_arg.parse::<u8>().expect("load thread count needs to be a positive integer < 256, got {}", load_threads_arg);
+					let load_thread_kind_arg = args.next().expect("--load-threads requires an argument for load thread type");
+					load_thread_kind = load_thread_kind_arg.try_from::<&str>().expect("Invalid load thread type: {}", load_thread_kind_arg);
+				},
 				&_ => println!("Unrecognized argument: {}", arg),
 			}
 		} else {
