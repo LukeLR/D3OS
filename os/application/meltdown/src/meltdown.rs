@@ -384,7 +384,7 @@ pub fn main() {
 		}
 	}
 	
-	for i in 0..0 {
+	for i in 0..3 {
 		// TODO: Find out why load threads are used in the original
 		// TODO: Do we really need load threads?
 		thread::create(nop_thread);
@@ -404,7 +404,7 @@ pub fn main() {
 			pointer = SECRET.add(index);
 		}
 		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
-		print!("{}", value as u8 as char);
+		print!("{}", value as u8); // TODO: Find out why this only prints 1 when using load threads
 		/*unsafe {
 			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
 		}*/
