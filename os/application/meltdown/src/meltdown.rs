@@ -243,21 +243,95 @@ pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
     return threshold;
 }
 
-fn load_thread() {
-	let thread = thread::current().expect("Can't get current thread!");
+fn print_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started print_thread {}!", thread_id);
+	
+	let space = 15+thread_id;
+	let filler = " ".repeat(space);
+	let revert = "\x1b[1D".repeat(space+1);
 	loop {
-		for _ in 0..10000000 {}
-		print!("{}", thread.id());
+		for i in 0..9 {
+			print!("{}{}{}", filler, i, revert);
+		}
+		syscall(ThreadSwitch, &[]);
 	}
 }
 
 fn nop_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started nop_thread {}!", thread_id);
+	
 	unsafe {
 		loop {
 			asm!("nop");
 		}
 	}
 }
+
+fn yield_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started yield_thread {}!", thread_id);
+	
+	loop {
+		syscall(ThreadSwitch, &[]);
+	}
+}
+
+fn load_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started load_thread {}!", thread_id);
+	
+	loop {
+		for i in 1..100 {
+			assert_eq!(i*i/i, i);
+		}
+	}
+}
+
+fn mem_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started mem_thread {}!", thread_id);
+	
+	// Create 1M memory array and fill each byte with the index of the corresponding 4K-page
+	// Copied from meltdown array initialisation below
+	const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+	let ptr;
+	let layout;
+	let mem: Vec<MemoryPage>;
+	let page_size = mem::size_of::<MemoryPage>();
+	let total_memory = page_size * ARRAY_SIZE;
+	
+	unsafe {
+		layout = Layout::from_size_align(total_memory, 4096).expect("Layout creation failed");
+		ptr = alloc(layout);
+		if ptr.is_null() {
+			handle_alloc_error(layout);
+		}
+		for i in 0..ARRAY_SIZE {
+			ptr::write_bytes(ptr.add(i * page_size), i as u8, page_size);
+		}
+		mem = Vec::from_raw_parts(ptr as *mut MemoryPage, ARRAY_SIZE, ARRAY_SIZE);
+	}
+	
+	// Repeatedly iterate over the array and check whether all entries are correct
+	loop {
+		for i in 0..ARRAY_SIZE {
+			let cur_ptr = &mem[i] as *const MemoryPage;
+			// Construct the correct value: 16 bytes each containing the value of i
+			let mut correct_value = i as u128;
+			for j in 1..16 {
+				correct_value += (i as u128) << j * 8;
+			}
+			
+			assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
+			for val in mem[i].0.iter() {
+				assert_eq!(*val, correct_value); // Check whether all elements are initialised with the value of i
+			}
+		}
+	}
+}
+
 
 #[unsafe(no_mangle)]
 pub fn main() {
@@ -314,7 +388,6 @@ pub fn main() {
 		// TODO: Find out why load threads are used in the original
 		// TODO: Do we really need load threads?
 		thread::create(nop_thread);
-		println!("Started nop_thread {}!", i);
 	}
 	
 	println!("Current CPU time: {}", rdtsc());
