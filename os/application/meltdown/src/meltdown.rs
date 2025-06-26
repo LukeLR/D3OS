@@ -339,11 +339,27 @@ fn mem_thread() {
 
 #[unsafe(no_mangle)]
 pub fn main() {
-    println!("Meltdown start\n");
-    println!("Address of handle_signal is {:x}", handle_signal as u64);
-    syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
-    const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K TODO: Original uses 300 non-aligned entries, skips the first 2 for alignment
-    let default_config = Config {
+	println!("Meltdown start\n");
+	
+	let args = env::args();
+	let mut print_chars = false;
+	let mut load_threads = 0;
+	loop {
+		if let Some(arg) = args.next() {
+			match arg.as_str() {
+				"-c" | "--print-chars" => print_chars = true,
+				"-l" | "--load-threads" => load_threads = args.next().expect("--load-threads requires an argument").parse::<u8>().expect("--load-threads requires a positive integer < 256"),
+				&_ => println!("Unrecognized argument: {}", arg),
+			}
+		} else {
+			break;
+		}
+	}
+	
+	println!("Address of handle_signal is {:x}", handle_signal as u64);
+	syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
+	const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K TODO: Original uses 300 non-aligned entries, skips the first 2 for alignment
+	let default_config = Config {
 		measurements: 3,
 		accept_after: 1,
 		retries: 10000,
