@@ -16,7 +16,7 @@ use concurrent::thread;
 use alloc::string::String;
 use alloc::boxed::Box;
 use alloc::format;
-
+use crate::env::Args;
 use core::arch::asm;
 
 use sjlj::{setjmp, longjmp, JumpBuf};
@@ -399,24 +399,29 @@ fn print_help() {
 	syscall(ProcessExit, &[]);
 }
 
-#[unsafe(no_mangle)]
-pub fn main() {
-	println!("Meltdown start\n");
-	
-	let mut args = env::args();
+struct Parameters {
+	print_charcodes: bool,
+	load_threads: u8,
+	load_thread_kind: LoadThreadKind,
+}
+
+fn parse_args(mut args: Args) -> Parameters {
 	args.next(); // Skip calling name
-	let mut print_charcodes = false;
-	let mut load_threads = 0;
-	let mut load_thread_kind = LoadThreadKind::LoadThread;
+	let mut parameters = Parameters {
+		print_charcodes: false,
+		load_threads: 0,
+		load_thread_kind: LoadThreadKind::LoadThread,
+	};
+	
 	loop {
 		if let Some(arg) = args.next() {
 			match arg.as_str() {
-				"-c" | "--print-charcodes" => print_charcodes = true,
+				"-c" | "--print-charcodes" => parameters.print_charcodes = true,
 				"-l" | "--load-threads" => {
 					let load_threads_arg = args.next().expect("--load-threads requires an argument for load thread cound");
-					load_threads = load_threads_arg.parse::<u8>().expect(format!("load thread count needs to be a positive integer < 256, got {}", load_threads_arg).as_str());
+					parameters.load_threads = load_threads_arg.parse::<u8>().expect(format!("load thread count needs to be a positive integer < 256, got {}", load_threads_arg).as_str());
 					let load_thread_kind_arg = args.next().expect("--load-threads requires an argument for load thread type");
-					load_thread_kind = LoadThreadKind::try_from(load_thread_kind_arg.as_str()).expect(format!("Invalid load thread type: {}", load_thread_kind_arg).as_str());
+					parameters.load_thread_kind = LoadThreadKind::try_from(load_thread_kind_arg.as_str()).expect(format!("Invalid load thread type: {}", load_thread_kind_arg).as_str());
 				},
 				"-h" | "--help" => print_help(),
 				&_ => {
@@ -428,6 +433,14 @@ pub fn main() {
 			break;
 		}
 	}
+	
+	return parameters;
+}
+
+#[unsafe(no_mangle)]
+pub fn main() {
+	println!("Meltdown start\n");
+	let parameters = parse_args(env::args());
 	
 	println!("Address of handle_signal is {:x}", handle_signal as u64);
 	syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
@@ -477,8 +490,8 @@ pub fn main() {
 		}
 	}
 	
-	let load_thread_fn = *Box::<LoadThreadFn>::from(load_thread_kind);
-	for i in 0..load_threads {
+	let load_thread_fn = *Box::<LoadThreadFn>::from(parameters.load_thread_kind);
+	for i in 0..parameters.load_threads {
 		// TODO: Find out why load threads are used in the original
 		// TODO: Do we really need load threads?
 		thread::create(load_thread_fn);
@@ -521,7 +534,7 @@ pub fn main() {
 		}
 		let result = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
 		
-		if print_charcodes {
+		if parameters.print_charcodes {
 			let value = result as u8;
 		} else {
 			let value = result as u8 as char;
