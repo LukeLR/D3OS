@@ -11,10 +11,11 @@ use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use signal::signal_vector::SignalVector;
 use signal::signal_handler::SignalHandler;
 use syscall::syscall;
-use syscall::SystemCall::{SignalHandlerRegister, ThreadSwitch, MeltdownCopyToKernelMemory};
+use syscall::SystemCall::{SignalHandlerRegister, ThreadSwitch, MeltdownCopyToKernelMemory, ProcessExit};
 use concurrent::thread;
 use alloc::string::String;
 use alloc::boxed::Box;
+use alloc::format;
 
 use core::arch::asm;
 
@@ -349,35 +350,65 @@ impl TryFrom<&str> for LoadThreadKind {
 
 	fn try_from(value: &str) -> Result<Self, Self::Error> {
 		match value {
-			"PrintThread" => LoadThreadKind::PrintThread,
-			"NopThread" => LoadThreadKind::NopThread,
-			"YieldThread" => LoadThreadKind::YieldThread,
-			"LoadThread" => LoadThreadKind::LoadThread,
-			"MemThread" => LoadThreadKind::MemThread,
-			&_ => Err(),
+			"PrintThread" => Ok(LoadThreadKind::PrintThread),
+			"NopThread" => Ok(LoadThreadKind::NopThread),
+			"YieldThread" => Ok(LoadThreadKind::YieldThread),
+			"LoadThread" => Ok(LoadThreadKind::LoadThread),
+			"MemThread" => Ok(LoadThreadKind::MemThread),
+			&_ => Err(()),
 		}
-    }
+	}
+}
+
+impl TryFrom<String> for LoadThreadKind {
+	type Error = ();
+	
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		LoadThreadKind::try_from(value.as_str())
+	}
+}
+
+fn print_help() {
+	println!("Meltdown vulnerability tester for D3OS.");
+	println!("This application copies a string into protected kernel memory using a syscall.");
+	println!("Afterwards, the string is read using the Meltdown attack. If the system is");
+	println!("vulnerable for Meltdown, the string will be printed to the terminal. Page");
+	println!("Faults that occur during the attack are caught by registering a signal handler");
+	println!("for Segmentation Faults.");
+	println!("");
+	println!("Usage:");
+	println!("  -c, --print-charcodes: Print character code points instead of actual chars");
+	println!("  -l n kind, --load-threads n kind: Spawn n load threads of kind kind while");
+	println!("                                    running the attack, this sometimes");
+	println!("                                    improves performance.");
+	println!("  -h, --help: Print this help text");
+	syscall(ProcessExit, &[]);
 }
 
 #[unsafe(no_mangle)]
 pub fn main() {
 	println!("Meltdown start\n");
 	
-	let args = env::args();
-	let mut print_chars = false;
+	let mut args = env::args();
+	args.next(); // Skip calling name
+	let mut print_charcodes = false;
 	let mut load_threads = 0;
 	let mut load_thread_kind = LoadThreadKind::LoadThread;
 	loop {
 		if let Some(arg) = args.next() {
 			match arg.as_str() {
-				"-c" | "--print-chars" => print_chars = true,
+				"-c" | "--print-charcodes" => print_charcodes = true,
 				"-l" | "--load-threads" => {
 					let load_threads_arg = args.next().expect("--load-threads requires an argument for load thread cound");
-					load_threads = load_threads_arg.parse::<u8>().expect("load thread count needs to be a positive integer < 256, got {}", load_threads_arg);
+					load_threads = load_threads_arg.parse::<u8>().expect(format!("load thread count needs to be a positive integer < 256, got {}", load_threads_arg).as_str());
 					let load_thread_kind_arg = args.next().expect("--load-threads requires an argument for load thread type");
-					load_thread_kind = load_thread_kind_arg.try_from::<&str>().expect("Invalid load thread type: {}", load_thread_kind_arg);
+					load_thread_kind = LoadThreadKind::try_from(load_thread_kind_arg.as_str()).expect(format!("Invalid load thread type: {}", load_thread_kind_arg).as_str());
 				},
-				&_ => println!("Unrecognized argument: {}", arg),
+				"-h" | "--help" => print_help(),
+				&_ => {
+					println!("Unrecognized argument: {}", arg);
+					print_help();
+				},
 			}
 		} else {
 			break;
