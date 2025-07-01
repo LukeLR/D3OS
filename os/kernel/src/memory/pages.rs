@@ -51,7 +51,7 @@ impl Drop for Paging {
 impl Paging {
 
     /// Create a new root page table for address space `self` with the given `depth`
-    pub(super) fn new(depth: usize) -> Self {
+    pub fn new(depth: usize) -> Self {
         let table_addr = frames::alloc(1).start;
         let root_table = table_addr.start_address().as_u64() as *mut PageTable;
         unsafe { root_table.as_mut().unwrap().zero(); }
@@ -69,7 +69,7 @@ impl Paging {
             let other_root_table_guard = other.root_table.read();
             let other_root_table = unsafe { other_root_table_guard.as_ref().unwrap() };
 
-            Paging::copy_table(other_root_table, root_table, other.depth);
+            Paging::copy_table(other_root_table, root_table, other.depth, true);
         }
 
         address_space
@@ -79,7 +79,10 @@ impl Paging {
     pub(super) fn load(&self) {
         unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
     }
-
+    
+    pub fn copy_from(&self, other: &Self, level: usize, overwrite: bool) {
+        Paging::copy_table(unsafe{self.root_table.write().as_mut()}.unwrap(), unsafe{other.root_table.write().as_mut()}.unwrap(), level, overwrite);
+    }
 
     /// Return physical address of root page table address (pml4) of `self`
     pub(super) fn page_table_address(&self) -> PhysAddr {
@@ -153,12 +156,16 @@ impl Paging {
     }
 
     /// Internal recursive function to copy page tables from `source` to `target`
-    fn copy_table(source: &PageTable, target: &mut PageTable, level: usize) {
+    /// If `overwrite` is set, unused entries in the source table will overwrite any existing entries in the target table.
+    /// Without overwrite set, existing entries in the target table are ignored whenever entries in the source table are unused.
+    fn copy_table(source: &PageTable, target: &mut PageTable, level: usize, overwrite: bool) {
         if level > 1 { // On all levels larger than 1, we allocate new page frames
             for (index, target_entry) in target.iter_mut().enumerate() {
                 let source_entry = &source[index];
                 if source_entry.is_unused() { // Skip empty entries
-                    target_entry.set_unused();
+                    if overwrite {
+                        target_entry.set_unused();
+                    }
                     continue;
                 }
 
@@ -168,12 +175,14 @@ impl Paging {
 
                 let next_level_source = unsafe { (source_entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
                 let next_level_target = unsafe { (target_entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
-                Paging::copy_table(next_level_source, next_level_target, level - 1);
+                Paging::copy_table(next_level_source, next_level_target, level - 1, overwrite);
             }
         } else { // Only on the last level, we create a 1:1 copy of the page table
             for (index, target_entry) in target.iter_mut().enumerate() {
                 let source_entry = &source[index];
-                target_entry.set_addr(source_entry.addr(), source_entry.flags());
+                if (overwrite || !source_entry.is_unused()) {
+                    target_entry.set_addr(source_entry.addr(), source_entry.flags());
+                }
             }
         }
     }

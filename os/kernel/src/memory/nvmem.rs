@@ -233,7 +233,7 @@ pub fn init() {
                 .read()
                 .kernel_process()
                 .expect("Failed to get kernel process")
-                .virtual_address_space
+                .kernelmode_address_space
                 .map(
                     PageRange {
                         start: start_page,

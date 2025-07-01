@@ -53,7 +53,7 @@ pub fn create_kernel_address_space() -> Arc<Paging> {
 }
 
 pub struct VirtualAddressSpace {
-    virtual_memory_areas: RwLock<Vec<VirtualMemoryArea>>,
+    virtual_memory_areas: Arc<RwLock<Vec<VirtualMemoryArea>>>,
     page_tables: Arc<Paging>,
 }
 
@@ -61,12 +61,16 @@ impl VirtualAddressSpace {
     pub fn new(page_tables: Arc<Paging>) -> Self {
         Self {
             page_tables,
-            virtual_memory_areas: RwLock::new(Vec::new()),
+            virtual_memory_areas: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub fn page_tables(&self) -> Arc<Paging> {
         Arc::clone(&self.page_tables)
+    }
+    
+    pub fn virtual_memory_areas(&self) -> Arc<RwLock<Vec<VirtualMemoryArea>>> {
+        Arc::clone(&self.virtual_memory_areas)
     }
 
     pub fn load_address_space(&self) {
@@ -279,12 +283,12 @@ impl VirtualMemoryArea {
         };
         let process = process_manager().read().current_process();
 
-        process.virtual_address_space.page_tables().map(
+        process.kernelmode_address_space.page_tables().map(
             new_pages,
             MemorySpace::User,
             PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
         );
-        process.virtual_address_space.update_vma(*self, |vma| vma.range.start = new_pages.start);
+        process.kernelmode_address_space.update_vma(*self, |vma| vma.range.start = new_pages.start);
     }
 }
 

@@ -24,16 +24,18 @@ fn next_process_id() -> usize {
 
 pub struct Process {
     pub id: usize,
-    pub virtual_address_space: VirtualAddressSpace,
+    pub usermode_address_space: VirtualAddressSpace,
+    pub kernelmode_address_space: VirtualAddressSpace,
     pub signal_dispatcher: SignalDispatcher,
 }
 
 
 impl Process {
-    pub fn new(page_tables: Arc<Paging>) -> Self {
+    pub fn new(usermode_page_tables: Arc<Paging>, kernelmode_page_tables: Arc<Paging>) -> Self {
         Self {
             id: next_process_id(),
-            virtual_address_space: VirtualAddressSpace::new(page_tables),
+            usermode_address_space: VirtualAddressSpace::new(usermode_page_tables),
+            kernelmode_address_space: VirtualAddressSpace::new(kernelmode_page_tables),
             signal_dispatcher: SignalDispatcher::new(),
         }
     }
@@ -63,7 +65,8 @@ impl Process {
 
 
     pub fn dump(&self) {
-        self.virtual_address_space.dump(self.id);
+        self.usermode_address_space.dump(self.id);
+        self.kernelmode_address_space.dump(self.id);
     }
 
 }

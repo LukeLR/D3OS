@@ -10,6 +10,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use log::info;
 
+use crate::memory::pages::Paging;
 use crate::memory::vmm;
 use crate::process::process::Process;
 use crate::scheduler;
@@ -29,15 +30,16 @@ impl ProcessManager {
 
     /// Create a new process
     pub fn create_process(&mut self) -> Arc<Process> {
-        let paging = match self.kernel_process() {
+        let usermode_page_tables = Arc::new(Paging::new(4)); // Create empty page tables for usermode
+        let kernelmode_page_tables = match self.kernel_process() {
             Some(kernel_process) => {
-                // Create user address space
-                vmm::clone_address_space(&(kernel_process.virtual_address_space))
+                // Create copy of kernelmode address space for usermode applications
+                vmm::clone_address_space(&(kernel_process.kernelmode_address_space))
             }
             None => vmm::create_kernel_address_space(),
         };
 
-        let process = Arc::new(Process::new(paging));
+        let process = Arc::new(Process::new(usermode_page_tables, kernelmode_page_tables));
         self.active_processes.push(Arc::clone(&process));
 
         info!("Process [{}]: created", process.id());
@@ -110,7 +112,8 @@ impl ProcessManager {
 
         for (i, process) in self.active_processes.iter().enumerate() {
             info!("Process #{}: PID={}", i, process.id());
-            process.virtual_address_space.dump(process.id());
+            process.usermode_address_space.dump(process.id());
+            process.kernelmode_address_space.dump(process.id());
         }
         info!("=============================");
     }

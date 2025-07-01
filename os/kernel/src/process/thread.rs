@@ -118,7 +118,7 @@ impl Thread {
         process_manager()
             .read()
             .current_process()
-            .virtual_address_space
+            .kernelmode_address_space
             .map_kernel_stack(
                 PageRange {
                     start: Page::from_start_address(VirtAddr::new(kernel_stack.as_ptr() as u64)).unwrap(),
@@ -182,7 +182,7 @@ impl Thread {
                         .offset(header.p_filesz as isize)
                         .write_bytes(0, (header.p_memsz - header.p_filesz) as usize);
                 }
-                process.virtual_address_space.map_physical(
+                process.kernelmode_address_space.map_physical(
                     frames,
                     pages,
                     MemorySpace::User,
@@ -221,7 +221,7 @@ impl Thread {
         };
 
         // map user stack of the application
-        process.virtual_address_space.map(
+        process.kernelmode_address_space.map(
             user_stack_pages,
             MemorySpace::User,
             PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
@@ -248,7 +248,7 @@ impl Thread {
         };
 
         // map environment of the application
-        process.virtual_address_space.map_physical(
+        process.kernelmode_address_space.map_physical(
             env_frames,
             env_pages,
             MemorySpace::User,
@@ -323,7 +323,7 @@ impl Thread {
         );
 
         // get highest stack vma in my address space
-        let stack_vmas = parent.virtual_address_space.find_vmas(VmaType::UserStack);
+        let stack_vmas = parent.kernelmode_address_space.find_vmas(VmaType::UserStack);
         let highest_stack_vma = stack_vmas
             .last()
             .expect("Trying to create a user thread, before the main thread has been created!");
@@ -351,7 +351,7 @@ impl Thread {
         let tid = scheduler::next_thread_id();
 
         // map one page as PRESENT for the allocated user stack
-        parent.virtual_address_space.map(
+        parent.kernelmode_address_space.map(
             user_stack_pages,
             MemorySpace::User,
             PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
@@ -414,7 +414,7 @@ impl Thread {
         let current_rsp0 = ptr::from_ref(&current.stacks.lock().old_rsp0) as *mut u64;
         let next_rsp0 = next.stacks.lock().old_rsp0.as_u64();
         let next_rsp0_end = next.kernel_stack_addr().as_u64();
-        let next_address_space = next.process.virtual_address_space.page_table_address().as_u64();
+        let next_address_space = next.process.kernelmode_address_space.page_table_address().as_u64();
         
         //scheduler::unlock_scheduler();
         /*if next.has_pending_signal() {
@@ -450,7 +450,7 @@ impl Thread {
 
         // Grow stack area -> Allocate one page right below the stack
         self.process
-             .virtual_address_space
+             .kernelmode_address_space
             .find_vmas(VmaType::UserStack)
             .iter()
             .find(|vma| vma.start().as_u64() == stacks.user_stack.as_ptr() as u64)

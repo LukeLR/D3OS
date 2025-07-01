@@ -118,7 +118,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // Create kernel process (and initialize virtual memory management)
     info!("Create kernel process and initialize paging");
     let kernel_process = process_manager().write().create_process();
-    kernel_process.virtual_address_space.load_address_space();
+    kernel_process.kernelmode_address_space.load_address_space();
 
     // Initialize serial port and enable serial logging
     init_serial_port();
@@ -138,7 +138,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
             .align_up(PAGE_SIZE as u64),
     )
     .unwrap();
-    kernel_process.virtual_address_space.map(
+    kernel_process.kernelmode_address_space.map(
         PageRange {
             start: fb_start_page,
             end: fb_end_page,
