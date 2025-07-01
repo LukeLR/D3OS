@@ -421,6 +421,7 @@ impl Thread {
         let current_rsp0 = ptr::from_ref(&current.stacks.lock().old_rsp0) as *mut u64;
         let next_rsp0 = next.stacks.lock().old_rsp0.as_u64();
         let next_rsp0_end = next.kernel_stack_addr().as_u64();
+        // TODO Do we need to check whether our target process is the kernel process and use the kernelmode page tables then?
         let next_address_space = next.process.kernelmode_address_space.page_table_address().as_u64();
         
         //scheduler::unlock_scheduler();
@@ -443,6 +444,18 @@ impl Thread {
         
         unsafe {
             thread_switch(current_rsp0, next_rsp0, next_rsp0_end, next_address_space);
+        }
+    }
+    
+    pub unsafe fn switch_address_space(&self){
+        if self.process.kernelmode_address_space.address_space_loaded() {
+            info!("Switching from kernel to user mode stack");
+            self.process.usermode_address_space.load_address_space();
+        } else if self.process.usermode_address_space.address_space_loaded() {
+            info!("Switching from user to kernel mode stack");
+            self.process.kernelmode_address_space.load_address_space();
+        } else {
+            panic!("Neither the kernel nor the user mode address space of this thread is loaded!");
         }
     }
 

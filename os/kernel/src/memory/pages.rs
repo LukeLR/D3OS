@@ -80,6 +80,13 @@ impl Paging {
         unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
     }
     
+    pub(super) fn is_loaded(&self) -> bool {
+        unsafe {
+            let (phys_frame, _) = Cr3::read();
+            PhysFrame::from_start_address(self.page_table_address()).unwrap() == phys_frame
+        }
+    }
+    
     pub fn copy_from(&self, other: &Self, level: usize, overwrite: bool) {
         Paging::copy_table(
             unsafe { other.root_table.write().as_mut() }.unwrap(), // source

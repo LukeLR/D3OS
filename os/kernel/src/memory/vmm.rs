@@ -83,6 +83,10 @@ impl VirtualAddressSpace {
     pub fn load_address_space(&self) {
         self.page_tables.load();
     }
+    
+    pub fn address_space_loaded(&self) -> bool {
+        self.page_tables.is_loaded()
+    }
 
     pub fn add_vma(&self, new_area: VirtualMemoryArea) {
         let mut areas = self.virtual_memory_areas.write();
