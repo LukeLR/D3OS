@@ -64,6 +64,13 @@ impl VirtualAddressSpace {
             virtual_memory_areas: Arc::new(RwLock::new(Vec::new())),
         }
     }
+    
+    pub fn new_with_vmas(page_tables: Arc<Paging>, virtual_memory_areas: Arc<RwLock<Vec<VirtualMemoryArea>>>) -> Self {
+        Self {
+            page_tables,
+            virtual_memory_areas,
+        }
+    }
 
     pub fn page_tables(&self) -> Arc<Paging> {
         Arc::clone(&self.page_tables)

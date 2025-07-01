@@ -81,7 +81,12 @@ impl Paging {
     }
     
     pub fn copy_from(&self, other: &Self, level: usize, overwrite: bool) {
-        Paging::copy_table(unsafe{self.root_table.write().as_mut()}.unwrap(), unsafe{other.root_table.write().as_mut()}.unwrap(), level, overwrite);
+        Paging::copy_table(
+            unsafe { other.root_table.write().as_mut() }.unwrap(), // source
+            unsafe { self.root_table.write().as_mut()  }.unwrap(), // target
+            level,
+            overwrite
+        );
     }
 
     /// Return physical address of root page table address (pml4) of `self`
