@@ -208,21 +208,16 @@ pub fn setup_idt() {
 
 macro_rules! execute_in_switched_address_space {
     ($code: block) => {
-        info!("Trying to switch address space");
-        if let Some(thread) = scheduler().try_current_thread() {
-            if thread.id() > 0 {
-                unsafe {
-                    thread.switch_address_space();
-                }
-                $code
-                unsafe {
-                    thread.switch_address_space();
-                }
-            } else {
-                debug!("This is the kernel thread, not switching address space");
+        if let Some(thread) = scheduler().try_current_thread() && thread.id() > 0 {
+            unsafe {
+                thread.switch_address_space();
+            }
+            $code
+            unsafe {
+                thread.switch_address_space();
             }
         } else {
-            debug!("No current thread!");
+            $code
         }
     }
 }
