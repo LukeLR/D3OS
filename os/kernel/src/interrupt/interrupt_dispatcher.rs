@@ -250,13 +250,16 @@ fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>)
 #[unsafe(link_section = ".visible_from_usermode")]
 fn switch_address_space() {
     info!("Trying to switch address space");
-    let thread = scheduler().current_thread();
-    if thread.id() > 0 {
-        unsafe {
-            thread.switch_address_space();
+    if let Some(thread) = scheduler().try_current_thread() {
+        if thread.id() > 0 {
+            unsafe {
+                thread.switch_address_space();
+            }
+        } else {
+            debug!("This is the kernel thread, not switching address space");
         }
     } else {
-        debug!("This is the kernel thread, not switching address space");
+        debug!("No current thread!");
     }
 }
 
