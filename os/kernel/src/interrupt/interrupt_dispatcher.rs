@@ -206,63 +206,67 @@ pub fn setup_idt() {
     }
 }
 
+macro_rules! execute_in_switched_address_space {
+    ($code: block) => {
+        info!("Trying to switch address space");
+        if let Some(thread) = scheduler().try_current_thread() {
+            if thread.id() > 0 {
+                unsafe {
+                    thread.switch_address_space();
+                }
+                $code
+                unsafe {
+                    thread.switch_address_space();
+                }
+            } else {
+                debug!("This is the kernel thread, not switching address space");
+            }
+        } else {
+            debug!("No current thread!");
+        }
+    }
+}
+
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_exception(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
-    switch_address_space();
-    panic!("CPU Exception: [{} - {:?}]\nError code: [{:?}]\n{:?}", index, InterruptVector::try_from(index).unwrap(), error, frame);
-    switch_address_space();
+    execute_in_switched_address_space!({
+        panic!("CPU Exception: [{} - {:?}]\nError code: [{:?}]\n{:?}", index, InterruptVector::try_from(index).unwrap(), error, frame);
+    });
 }
 
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_page_fault(mut frame: InterruptStackFrame, _index: u8, error: Option<u64>) {
-    switch_address_space();
-    let fault_addr = Cr2::read().expect("Invalid address in CR2 during page fault");
-    let thread = scheduler().current_thread();
+    execute_in_switched_address_space!({
+        let fault_addr = Cr2::read().expect("Invalid address in CR2 during page fault");
+        let thread = scheduler().current_thread();
 
-    // Check if page fault occurred right below the user stack
-    if !thread.is_kernel_thread() && !thread.stacks_locked() && fault_addr > (thread.user_stack_start() - PAGE_SIZE as u64) && fault_addr < thread.user_stack_start() {
-        thread.grow_user_stack(); // Grow stack by one page
-    } else {
-    
-        if let Err(()) = thread.process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
-            panic!("Page Fault!\nError code: [{:?}]\nAddress: [0x{:0>16x}]\n{:?}", error, fault_addr, frame);
+        // Check if page fault occurred right below the user stack
+        if !thread.is_kernel_thread() && !thread.stacks_locked() && fault_addr > (thread.user_stack_start() - PAGE_SIZE as u64) && fault_addr < thread.user_stack_start() {
+            thread.grow_user_stack(); // Grow stack by one page
+        } else {
+        
+            if let Err(()) = thread.process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
+                panic!("Page Fault!\nError code: [{:?}]\nAddress: [0x{:0>16x}]\n{:?}", error, fault_addr, frame);
+            }
         }
-    }
-    //println!("Reached end of handle_page_fault for thread {}!", thread.id());
-    switch_address_space();
+        //println!("Reached end of handle_page_fault for thread {}!", thread.id());
+    });
 }
 
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
-    switch_address_space();
     println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
-    scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame);
-    switch_address_space();
+    execute_in_switched_address_space!({
+        scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame);
+    });
 }
 
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>) {
-    switch_address_space();
-    interrupt_dispatcher().dispatch(index);
-    switch_address_space();
+    execute_in_switched_address_space!({
+        interrupt_dispatcher().dispatch(index);
+    });
 }
-
-#[unsafe(link_section = ".visible_from_usermode")]
-fn switch_address_space() {
-    info!("Trying to switch address space");
-    if let Some(thread) = scheduler().try_current_thread() {
-        if thread.id() > 0 {
-            unsafe {
-                thread.switch_address_space();
-            }
-        } else {
-            debug!("This is the kernel thread, not switching address space");
-        }
-    } else {
-        debug!("No current thread!");
-    }
-}
-
 
 impl InterruptDispatcher {
     pub fn new() -> Self {
