@@ -73,6 +73,10 @@ impl Scheduler {
         self.get_ready_state().initialized = true;
     }
     
+    pub fn is_init(&self) -> bool {
+        self.get_ready_state().initialized
+    }
+    
     pub fn active_thread_ids(&self) -> Vec<usize> {
         let state = self.get_ready_state();
         let sleep_list = self.sleep_list.lock();
