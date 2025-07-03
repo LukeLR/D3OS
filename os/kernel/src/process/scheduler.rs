@@ -15,7 +15,7 @@ use core::ptr;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
 use smallmap::Map;
-use spin::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use spin::{Mutex, MutexGuard};
 
 // thread IDs
 static THREAD_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
@@ -43,7 +43,7 @@ impl ReadyState {
 
 /// Main struct of the scheduler
 pub struct Scheduler {
-    ready_state: RwLock<ReadyState>,
+    ready_state: Mutex<ReadyState>,
     sleep_list: Mutex<Vec<(Arc<Thread>, usize)>>,
     join_map: Mutex<Map<usize, Vec<Arc<Thread>>>>, // manage which threads are waiting for a thread-id to terminate
 }
@@ -54,7 +54,7 @@ unsafe impl Sync for Scheduler {}
 /// Called from assembly code, after the thread has been switched
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unlock_scheduler() {
-    unsafe { scheduler().ready_state.force_write_unlock(); }
+    unsafe { scheduler().ready_state.force_unlock(); }
 }
 
 impl Scheduler {
@@ -62,7 +62,7 @@ impl Scheduler {
     /// Description: Create and init the scheduler.
     pub fn new() -> Self {
         Self {
-            ready_state: RwLock::new(ReadyState::new()),
+            ready_state: Mutex::new(ReadyState::new()),
             sleep_list: Mutex::new(Vec::new()),
             join_map: Mutex::new(Map::new()),
         }
@@ -70,11 +70,7 @@ impl Scheduler {
 
     /// Description: Called during creation of threads
     pub fn set_init(&self) {
-        self.get_ready_state_write().initialized = true;
-    }
-    
-    pub fn is_init(&self) -> bool {
-        self.get_ready_state().initialized.clone()
+        self.get_ready_state().initialized = true;
     }
     
     pub fn active_thread_ids(&self) -> Vec<usize> {
@@ -102,7 +98,7 @@ impl Scheduler {
 
     /// Description: Return reference to thread for the given `thread_id`
     pub fn thread(&self, thread_id: usize) -> Option<Arc<Thread>> {
-        self.ready_state.read().ready_queue
+        self.ready_state.lock().ready_queue
             .iter()
             .find(|thread| thread.id() == thread_id)
             .cloned()
@@ -110,7 +106,7 @@ impl Scheduler {
 
     /// Description: Start the scheduler, called only once from `boot.rs` 
     pub fn start(&self) {
-        let mut state = self.get_ready_state_write();
+        let mut state = self.get_ready_state();
         state.current_thread = state.ready_queue.pop_back();
 
         unsafe { Thread::start_first(state.current_thread.as_ref().expect("Failed to dequeue first thread!").as_ref()); }
@@ -132,7 +128,7 @@ impl Scheduler {
         // To solve this, we need to release the lock on 'self.state' in case we do not get
         // the lock on 'self.join_map' and let the scheduler switch threads until we get both locks.
         loop {
-            let state_mutex = self.get_ready_state_write();
+            let state_mutex = self.get_ready_state();
             let join_map_option = self.join_map.try_lock();
 
             if join_map_option.is_some() {
@@ -150,7 +146,7 @@ impl Scheduler {
 
     /// Description: Put calling thread to sleep for `ms` milliseconds
     pub fn sleep(&self, ms: usize) {
-        let mut state = self.get_ready_state_write();
+        let mut state = self.get_ready_state();
 
         if !state.initialized {
             timer().wait(ms);
@@ -175,7 +171,7 @@ impl Scheduler {
     ///                         false = no EOI needed
     /// 
     fn switch_thread(&self, interrupt: bool) {
-        if let Some(mut state) = self.ready_state.try_write() {
+        if let Some(mut state) = self.ready_state.try_lock() {
             if !state.initialized {
                 return;
             }
@@ -227,7 +223,7 @@ impl Scheduler {
     /// Parameters: `thread_id` thread to wait for
     /// 
     pub fn join(&self, thread_id: usize) {
-        let mut state = self.get_ready_state_write();
+        let mut state = self.get_ready_state();
         let thread = Scheduler::current(&state);
 
         {
@@ -361,19 +357,14 @@ impl Scheduler {
     }
 
     /// Description: Helper function returning `ReadyState` of scheduler in a MutexGuard
-    fn get_ready_state(&self) -> RwLockReadGuard<ReadyState> {
-        self.ready_state.read()
-    }
-    
-    /// Description: Helper function returning `ReadyState` of scheduler in a MutexGuard
-    fn get_ready_state_write(&self) -> RwLockWriteGuard<ReadyState> {
+    fn get_ready_state(&self) -> MutexGuard<ReadyState> {
         let state;
 
         // We need to make sure, that both the kernel memory manager and the ready queue are currently not locked.
         // Otherwise, a deadlock may occur: Since we are holding the ready queue lock,
         // the scheduler won't switch threads anymore, and none of the locks will ever be released
         loop {
-            let state_tmp = self.ready_state.write();
+            let state_tmp = self.ready_state.lock();
             if allocator().is_locked() {
                 continue;
             }
@@ -386,9 +377,9 @@ impl Scheduler {
     }
 
     /// Description: Helper function returning `ReadyState` and `Map` of scheduler, each in a MutexGuard
-    fn get_ready_state_and_join_map(&self) -> (RwLockWriteGuard<ReadyState>, MutexGuard<Map<usize, Vec<Arc<Thread>>>>) {
+    fn get_ready_state_and_join_map(&self) -> (MutexGuard<ReadyState>, MutexGuard<Map<usize, Vec<Arc<Thread>>>>) {
         loop {
-            let ready_state = self.get_ready_state_write();
+            let ready_state = self.get_ready_state();
             let join_map = self.join_map.try_lock();
 
             if join_map.is_some() {
