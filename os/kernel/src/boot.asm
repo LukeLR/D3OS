@@ -2,6 +2,7 @@
 [EXTERN ___BSS_END__]
 [EXTERN ___KERNEL_DATA_START__]
 [EXTERN ___KERNEL_DATA_END__]
+[EXTERN ___VISIBLE_FROM_USERMODE__]
 [EXTERN start]
 
 ; Kernel constants
