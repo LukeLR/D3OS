@@ -64,8 +64,10 @@ use x86_64::{PhysAddr, VirtAddr};
 // import labels from linker script 'link.ld'
 unsafe extern "C" {
     static ___KERNEL_DATA_START__: u64; // start address of OS image
-    static ___VISIBLE_FROM_USERMODE__: u64; // Parts of kernel that need to be visible from usermode
     static ___KERNEL_DATA_END__: u64; // end address of OS image
+    static ___BSS_START__: u64; // start address of BSS segment
+    static ___BSS_END__: u64; // end address of BSS segment
+    static ___VISIBLE_FROM_USERMODE__: u64; // Parts of kernel that need to be visible from usermode
 }
 
 const INIT_HEAP_PAGES: usize = 0x400; // number of heap pages for booting the OS
@@ -117,7 +119,12 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     debug!("Page frame allocator:\n{}", memory::frames::dump());
     
     unsafe {
-        debug!("Visible from usermode: 0x{:x}", ___VISIBLE_FROM_USERMODE__);
+        debug!("Labels from linker script:");
+        debug!("  ___KERNEL_DATA_START__: 0x{:x}", ___KERNEL_DATA_START__);
+        debug!("  ___KERNEL_DATA_END__: 0x{:x}", ___KERNEL_DATA_END__);
+        debug!("  ___BSS_START__: 0x{:x}", ___BSS_START__);
+        debug!("  ___BSS_END__: 0x{:x}", ___BSS_END__);
+        debug!("  ___VISIBLE_FROM_USERMODE__: 0x{:x}", ___VISIBLE_FROM_USERMODE__);
     }
 
     // Create kernel process (and initialize virtual memory management)
