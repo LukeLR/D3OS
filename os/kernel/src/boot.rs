@@ -120,11 +120,11 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     
     unsafe {
         debug!("Labels from linker script:");
-        debug!("  ___KERNEL_DATA_START__: 0x{:x}", ___KERNEL_DATA_START__);
-        debug!("  ___KERNEL_DATA_END__: 0x{:x}", ___KERNEL_DATA_END__);
-        debug!("  ___BSS_START__: 0x{:x}", ___BSS_START__);
-        debug!("  ___BSS_END__: 0x{:x}", ___BSS_END__);
-        debug!("  ___VISIBLE_FROM_USERMODE__: 0x{:x}", ___VISIBLE_FROM_USERMODE__);
+        debug!("  ___KERNEL_DATA_START__: {:p}", &___KERNEL_DATA_START__);
+        debug!("  ___KERNEL_DATA_END__: {:p}", &___KERNEL_DATA_END__);
+        debug!("  ___BSS_START__: {:p}", &___BSS_START__);
+        debug!("  ___BSS_END__: {:p}", &___BSS_END__);
+        debug!("  ___VISIBLE_FROM_USERMODE__: {:p}", &___VISIBLE_FROM_USERMODE__);
     }
 
     // Create kernel process (and initialize virtual memory management)
