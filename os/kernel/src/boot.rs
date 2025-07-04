@@ -64,6 +64,7 @@ use x86_64::{PhysAddr, VirtAddr};
 // import labels from linker script 'link.ld'
 unsafe extern "C" {
     static ___KERNEL_DATA_START__: u64; // start address of OS image
+    static ___VISIBLE_FROM_USERMODE__: u64; // Parts of kernel that need to be visible from usermode
     static ___KERNEL_DATA_END__: u64; // end address of OS image
 }
 
@@ -81,7 +82,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
 
     // Log messages and panics are now working, but cannot use format string until the heap is initialized later on
     info!("Welcome to D3OS early boot environment!");
-
+    
     // Get multiboot information
     if multiboot2_magic != multiboot2::MAGIC {
         panic!("Invalid Multiboot2 magic number!");
@@ -114,6 +115,10 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
         heap_region.end.start_address().as_u64()
     );
     debug!("Page frame allocator:\n{}", memory::frames::dump());
+    
+    unsafe {
+        debug!("Visible from usermode: 0x{:x}", ___VISIBLE_FROM_USERMODE__);
+    }
 
     // Create kernel process (and initialize virtual memory management)
     info!("Create kernel process and initialize paging");

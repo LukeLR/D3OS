@@ -26,5 +26,17 @@ SECTIONS {
     {
         *(.data*)
     }
+    
+    . += 4K;
+    
+    . = ALIGN (4K);
+    
+    ___VISIBLE_FROM_USERMODE__  = .;
+    
+    .visible_from_usermode :
+    {
+        *(.visible_from_usermode*)
+    }
+    
     ___KERNEL_DATA_END__ = .;
 }
