@@ -7,6 +7,9 @@ use spin::Mutex;
 use x86_64::registers::control::Cr2;
 use x86_64::set_general_handler;
 use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::structures::gdt::SegmentSelector;
+use x86_64::PrivilegeLevel;
+use x86_64;
 use x86_64::VirtAddr;
 use crate::{apic, idt, interrupt_dispatcher, scheduler};
 use crate::memory::PAGE_SIZE;
@@ -206,14 +209,17 @@ pub fn setup_idt() {
     }
 }
 
+const kernel_segment: SegmentSelector = SegmentSelector::new(1, PrivilegeLevel::Ring0);
+
 macro_rules! execute_in_switched_address_space {
-    ($code: block) => {
-        if scheduler().is_init() {
-            debug!("Switching address space!");
+    ($frame: ident, $code: block) => {
+        if $frame.code_segment != kernel_segment {
+            debug!("Switching address space for frame {:?}", $frame);
             unsafe {
                 scheduler().current_thread().switch_address_space();
             }
             $code
+            debug!("Restoring address space for frame {:?}", $frame);
             unsafe {
                 scheduler().current_thread().switch_address_space();
             }
@@ -225,14 +231,14 @@ macro_rules! execute_in_switched_address_space {
 
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_exception(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
-    execute_in_switched_address_space!({
+    execute_in_switched_address_space!(frame, {
         panic!("CPU Exception: [{} - {:?}]\nError code: [{:?}]\n{:?}", index, InterruptVector::try_from(index).unwrap(), error, frame);
     });
 }
 
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_page_fault(mut frame: InterruptStackFrame, _index: u8, error: Option<u64>) {
-    execute_in_switched_address_space!({
+    execute_in_switched_address_space!(frame, {
         let fault_addr = Cr2::read().expect("Invalid address in CR2 during page fault");
         let thread = scheduler().current_thread();
 
@@ -252,14 +258,14 @@ fn handle_page_fault(mut frame: InterruptStackFrame, _index: u8, error: Option<u
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
     println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
-    execute_in_switched_address_space!({
+    execute_in_switched_address_space!(frame, {
         scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame);
     });
 }
 
 #[unsafe(link_section = ".visible_from_usermode")]
-fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>) {
-    execute_in_switched_address_space!({
+fn handle_interrupt(frame: InterruptStackFrame, index: u8, _error: Option<u64>) {
+    execute_in_switched_address_space!(frame, {
         interrupt_dispatcher().dispatch(index);
     });
 }
