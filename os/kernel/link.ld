@@ -27,7 +27,9 @@ SECTIONS {
         *(.data*)
     }
     
-    . = 100M;
+    . += 4K;
+    
+    . = ALIGN (4K);
     
     ___VISIBLE_FROM_USERMODE_START__  = .;
     
