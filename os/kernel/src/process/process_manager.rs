@@ -30,7 +30,7 @@ impl ProcessManager {
 
     /// Create a new process
     pub fn create_process(&mut self) -> Arc<Process> {
-        let usermode_page_tables = Arc::new(Paging::new(4)); // Create empty page tables for usermode
+        let usermode_page_tables = vmm::create_user_address_space();
         let kernelmode_page_tables = match self.kernel_process() {
             Some(kernel_process) => {
                 // Create copy of kernelmode address space for usermode applications

@@ -29,15 +29,36 @@ use crate::memory::frames::phys_limit;
 use crate::memory::pages::Paging;
 use crate::memory::{MemorySpace, PAGE_SIZE};
 use crate::process_manager;
+use crate::boot::visible_from_userspace_region;
 
 /// Clone address space. Used during process creation.
 pub fn clone_address_space(other: &VirtualAddressSpace) -> Arc<Paging> {
     Arc::new(Paging::from_other(&&other.page_tables()))
 }
 
+/// Create user address space
+pub fn create_user_address_space() -> Arc<Paging> {
+	let address_space = Paging::new(4);
+	let userspace_region = visible_from_userspace_region();
+	
+	let range = PageRange {
+		start: Page::from_start_address(VirtAddr::new(userspace_region.start.start_address().as_u64())).expect("Userspace visible start address is not aligned!"),
+		// TODO: The following only works when the end address is properly aligned up to a new frame, which it should be
+		end:   Page::from_start_address(VirtAddr::new(userspace_region.end.start_address().as_u64())).expect("Userspace visible end address is not aligned!"),
+	};
+	
+	address_space.map(
+		range,
+		MemorySpace::User,
+		PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
+	);
+	
+	Arc::new(address_space)
+}
+
 /// Create kernel address space. Used during process creation.
 pub fn create_kernel_address_space() -> Arc<Paging> {
-    let address_space = Paging::new(4);
+    let address_space = create_user_address_space(); // Kernel address space should contain user address space as well
     let max_phys_addr = phys_limit().start_address();
     let range = PageRange {
         start: Page::containing_address(VirtAddr::zero()),
@@ -49,7 +70,8 @@ pub fn create_kernel_address_space() -> Arc<Paging> {
         MemorySpace::Kernel,
         PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
     );
-    Arc::new(address_space)
+    
+    address_space
 }
 
 pub struct VirtualAddressSpace {
