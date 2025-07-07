@@ -434,29 +434,29 @@ fn init_gdt() {
 /// Return `PhysFrameRange` for memory occupied by the kernel image
 fn kernel_image_region() -> PhysFrameRange {
     unsafe {
-		page_image_region(___KERNEL_DATA_START__, ___KERNEL_DATA_END__)
+		page_image_region(&___KERNEL_DATA_START__, &___KERNEL_DATA_END__)
 	}
 }
 
 /// Return `PhysFrameRange` for memory that contains kernel parts visible from userspace
 fn visible_from_userspace_region() -> PhysFrameRange {
 	unsafe {
-		page_image_region(___VISIBLE_FROM_USERMODE_START__, ___VISIBLE_FROM_USERMODE_END__)
+		page_image_region(&___VISIBLE_FROM_USERMODE_START__, &___VISIBLE_FROM_USERMODE_END__)
 	}
 }
 
 /// Return `PhysFrameRange` for a given start and end address
-fn page_image_region(start_address: u64, end_address: u64) -> PhysFrameRange {
+fn page_image_region(start_address: &u64, end_address: &u64) -> PhysFrameRange {
 	let start: PhysFrame;
     let end: PhysFrame;
     
 	unsafe {
         start = PhysFrame::from_start_address(PhysAddr::new(
-            ptr::from_ref(&start_address) as u64,
+            ptr::from_ref(start_address) as u64,
         ))
         .expect("Kernel code is not page aligned");
         end = PhysFrame::from_start_address(
-            PhysAddr::new(ptr::from_ref(&end_address) as u64).align_up(PAGE_SIZE as u64),
+            PhysAddr::new(ptr::from_ref(end_address) as u64).align_up(PAGE_SIZE as u64),
         )
         .unwrap();
     }
