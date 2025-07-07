@@ -27,9 +27,9 @@ SECTIONS {
         *(.data*)
     }
     
-    . += 4K;
+    . += 4K; /* Leave out one page */
     
-    . = ALIGN (4K);
+    . = ALIGN (4K); /* Align to 4K before assigning label */
     
     ___VISIBLE_FROM_USERMODE_START__  = .;
     
