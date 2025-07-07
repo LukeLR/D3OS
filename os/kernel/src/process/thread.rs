@@ -447,12 +447,13 @@ impl Thread {
         }
     }
     
+    #[unsafe(link_section = ".visible_from_usermode")]
     pub unsafe fn enable_kernel_address_space(&self, kernel_space: bool){
         if !kernel_space {
-            info!("Loading user mode stack");
+            //info!("Loading user mode stack");
             self.process.usermode_address_space.load_address_space();
         } else {
-            info!("Loading kernel mode stack");
+            //info!("Loading kernel mode stack");
             self.process.kernelmode_address_space.load_address_space();
         }
     }

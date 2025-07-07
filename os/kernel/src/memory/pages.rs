@@ -76,6 +76,7 @@ impl Paging {
     }
 
     /// Load cr3 register with the root page table address of `self`
+    #[unsafe(link_section = ".visible_from_usermode")]
     pub(super) fn load(&self) {
         unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
     }

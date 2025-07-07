@@ -102,6 +102,7 @@ impl VirtualAddressSpace {
         Arc::clone(&self.virtual_memory_areas)
     }
 
+	#[unsafe(link_section = ".visible_from_usermode")]
     pub fn load_address_space(&self) {
         self.page_tables.load();
     }
