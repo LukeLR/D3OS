@@ -385,9 +385,6 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
 
     // Dump information about all processes (including VMAs) 
     process_manager().read().dump();
-    
-    let meltdown_secret = "This is a secret string in kernel memory.";
-    info!("meltdown_secret {} at address {:p}", meltdown_secret, meltdown_secret.as_ptr());
 
     // Start APIC timer & scheduler
     info!("Starting scheduler");
