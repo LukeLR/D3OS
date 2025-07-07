@@ -216,12 +216,12 @@ macro_rules! execute_in_switched_address_space {
         if $frame.code_segment != kernel_segment {
             debug!("Switching address space for frame {:?}", $frame);
             unsafe {
-                scheduler().current_thread().switch_address_space();
+                scheduler().current_thread().enable_kernel_address_space(true);
             }
             $code
             debug!("Restoring address space for frame {:?}", $frame);
             unsafe {
-                scheduler().current_thread().switch_address_space();
+                scheduler().current_thread().enable_kernel_address_space(false);
             }
         } else {
             $code

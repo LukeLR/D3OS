@@ -447,15 +447,13 @@ impl Thread {
         }
     }
     
-    pub unsafe fn switch_address_space(&self){
-        if self.process.kernelmode_address_space.address_space_loaded() {
-            info!("Switching from kernel to user mode stack");
+    pub unsafe fn enable_kernel_address_space(&self, kernel_space: bool){
+        if !kernel_space {
+            info!("Loading user mode stack");
             self.process.usermode_address_space.load_address_space();
-        } else if self.process.usermode_address_space.address_space_loaded() {
-            info!("Switching from user to kernel mode stack");
-            self.process.kernelmode_address_space.load_address_space();
         } else {
-            panic!("Neither the kernel nor the user mode address space of this thread is loaded!");
+            info!("Loading kernel mode stack");
+            self.process.kernelmode_address_space.load_address_space();
         }
     }
 
