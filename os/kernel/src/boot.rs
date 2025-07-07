@@ -99,11 +99,12 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     info!("Initializing GDT");
     init_gdt();
     
-    info!("Reserving kernel image region at {:?}", kernel_image_region());
+    info!("Reserving kernel image region");
 
     // The bootloader marks the kernel image region as available, so we need to reserve it manually
     unsafe {
         memory::frames::reserve(kernel_image_region());
+        memory::frames::reserve(visible_from_userspace_region());
     }
 
     // and initialize kernel heap, after which formatted strings may be used in logs and panics.
