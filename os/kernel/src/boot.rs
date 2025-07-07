@@ -67,7 +67,8 @@ unsafe extern "C" {
     static ___KERNEL_DATA_END__: u64; // end address of OS image
     static ___BSS_START__: u64; // start address of BSS segment
     static ___BSS_END__: u64; // end address of BSS segment
-    static ___VISIBLE_FROM_USERMODE__: u64; // Parts of kernel that need to be visible from usermode
+    static ___VISIBLE_FROM_USERMODE_START__: u64; // Parts of kernel that need to be visible from usermode
+    static ___VISIBLE_FROM_USERMODE_END__: u64;
 }
 
 const INIT_HEAP_PAGES: usize = 0x400; // number of heap pages for booting the OS
@@ -124,7 +125,8 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
         debug!("  ___KERNEL_DATA_END__: {:p}", &___KERNEL_DATA_END__);
         debug!("  ___BSS_START__: {:p}", &___BSS_START__);
         debug!("  ___BSS_END__: {:p}", &___BSS_END__);
-        debug!("  ___VISIBLE_FROM_USERMODE__: {:p}", &___VISIBLE_FROM_USERMODE__);
+        debug!("  ___VISIBLE_FROM_USERMODE_START__: {:p}", &___VISIBLE_FROM_USERMODE_START__);
+        debug!("  ___VISIBLE_FROM_USERMODE_END__: {:p}", &___VISIBLE_FROM_USERMODE_END__);
     }
 
     // Create kernel process (and initialize virtual memory management)
@@ -431,16 +433,30 @@ fn init_gdt() {
 
 /// Return `PhysFrameRange` for memory occupied by the kernel image
 fn kernel_image_region() -> PhysFrameRange {
-    let start: PhysFrame;
-    let end: PhysFrame;
-
     unsafe {
+		page_image_region(___KERNEL_DATA_START__, ___KERNEL_DATA_END__)
+	}
+}
+
+/// Return `PhysFrameRange` for memory that contains kernel parts visible from userspace
+fn visible_from_userspace_region() -> PhysFrameRange {
+	unsafe {
+		page_image_region(___VISIBLE_FROM_USERMODE_START__, ___VISIBLE_FROM_USERMODE_END__)
+	}
+}
+
+/// Return `PhysFrameRange` for a given start and end address
+fn page_image_region(start_address: u64, end_address: u64) -> PhysFrameRange {
+	let start: PhysFrame;
+    let end: PhysFrame;
+    
+	unsafe {
         start = PhysFrame::from_start_address(PhysAddr::new(
-            ptr::from_ref(&___KERNEL_DATA_START__) as u64,
+            ptr::from_ref(&start_address) as u64,
         ))
         .expect("Kernel code is not page aligned");
         end = PhysFrame::from_start_address(
-            PhysAddr::new(ptr::from_ref(&___KERNEL_DATA_END__) as u64).align_up(PAGE_SIZE as u64),
+            PhysAddr::new(ptr::from_ref(&end_address) as u64).align_up(PAGE_SIZE as u64),
         )
         .unwrap();
     }

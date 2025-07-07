@@ -29,12 +29,14 @@ SECTIONS {
     
     . = 100M;
     
-    ___VISIBLE_FROM_USERMODE__  = .;
+    ___VISIBLE_FROM_USERMODE_START__  = .;
     
     .visible_from_usermode :
     {
         *(.visible_from_usermode*)
     }
+    
+    ___VISIBLE_FROM_USERMODE_END__  = .;
     
     ___KERNEL_DATA_END__ = .;
 }
