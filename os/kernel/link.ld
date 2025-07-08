@@ -27,7 +27,7 @@ SECTIONS {
         *(.data*)
     }
     
-    . = 64M;
+    . = 0x8000000000; /* Load user-visible kernel sections at 512GiB */
     
     ___VISIBLE_FROM_USERMODE_START__  = .;
     
