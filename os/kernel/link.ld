@@ -1,7 +1,7 @@
 ENTRY(start)
 
 MEMORY {
-    high : ORIGIN = 25M, LENGTH = 0x700000
+    high : ORIGIN = 25M, LENGTH = 0x7000000
 }
 
 SECTIONS {
@@ -24,19 +24,19 @@ SECTIONS {
         *(.multiboot2_header)
     } AT> high
 
-    .text ALIGN (4K) :
+    .text :
     {
         *(.text*)
     } AT> high
 
-   .bss ALIGN (4K) :
+   .bss :
     {
       ___BSS_START__ = .;
       *(".bss*")
       ___BSS_END__ = .;
     } AT> high
 
-    .data ALIGN (4K) :
+    .data :
     {
         *(.data*)
     } AT> high
@@ -45,7 +45,7 @@ SECTIONS {
     
     ___VISIBLE_FROM_USERMODE_START__  = .;
     
-    .visible_from_usermode ALIGN (4K) :
+    .visible_from_usermode :
     {
         *(.visible_from_usermode*)
     } AT> high
