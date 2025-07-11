@@ -23,18 +23,26 @@ SECTIONS {
     {
         *(.multiboot2_header)
     } AT> high
+    
+    . = ALIGN (4K);
 
     .text :
     {
         *(.text*)
     } AT> high
-
+    
+    . = ALIGN (4K);
+    
+    ___BSS_START__ = .;
+    
    .bss :
     {
-      ___BSS_START__ = .;
       *(".bss*")
-      ___BSS_END__ = .;
     } AT> high
+    
+    ___BSS_END__ = .;
+    
+    . = ALIGN (4K);
 
     .data :
     {
@@ -42,6 +50,8 @@ SECTIONS {
     } AT> high
     
     ___KERNEL_DATA_END__ = .;
+    
+    . = ALIGN (4K);
     
     ___VISIBLE_FROM_USERMODE_START__  = .;
     
