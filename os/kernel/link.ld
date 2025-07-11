@@ -41,16 +41,14 @@ SECTIONS {
         *(.data*)
     } AT> high
     
-    . = 0x8000000000; /* Load user-visible kernel sections at 512GiB */
+    ___KERNEL_DATA_END__ = .;
     
     ___VISIBLE_FROM_USERMODE_START__  = .;
     
-    .visible_from_usermode :
+    .visible_from_usermode 0x8000000000 :
     {
         *(.visible_from_usermode*)
     } AT> high
     
     ___VISIBLE_FROM_USERMODE_END__  = .;
-    
-    ___KERNEL_DATA_END__ = .;
 }
