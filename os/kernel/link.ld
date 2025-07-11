@@ -50,5 +50,5 @@ SECTIONS {
         *(.visible_from_usermode*)
     } AT> high
     
-    ___VISIBLE_FROM_USERMODE_END__  = .;
+    ___VISIBLE_FROM_USERMODE_END__ = ___VISIBLE_FROM_USERMODE_START__ + SIZEOF (.visible_from_usermode);
 }
