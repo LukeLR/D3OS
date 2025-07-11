@@ -19,7 +19,7 @@ use return_vals::{SyscallResult, convert_ret_code_to_syscall_result};
 pub enum SystemCall {
     TerminalRead = 0,
     TerminalWrite,
-    MapUserHeap,
+    MapMemory,
     ProcessExecuteBinary,
     ProcessId,
     ProcessExit,
@@ -93,7 +93,7 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
             clobber_abi("system"));
     }
 
-    convert_ret_code_to_syscall_result(ret_code.try_into().unwrap())
+    convert_ret_code_to_syscall_result(ret_code)
 }
 
 /* SECURITY: This can be skipped by using the syscall instruction directly

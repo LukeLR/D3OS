@@ -107,6 +107,7 @@ impl CursorThread {
     pub fn run(&mut self) {
         let mut sleep_counter = 0usize;
 
+
         loop {
             scheduler().sleep(CURSOR_UPDATE_INTERVAL);
             sleep_counter += CURSOR_UPDATE_INTERVAL;
@@ -549,9 +550,7 @@ impl LFBTerminal {
         let mut bg_self = color.bg_base_color;
 
         if color.invert {
-            let tmp = fg_self;
-            fg_self = bg_self;
-            bg_self = tmp;
+            core::mem::swap(&mut fg_self, &mut bg_self);
         }
 
         if color.bright || color.fg_bright {
@@ -694,8 +693,8 @@ impl LFBTerminal {
     fn handle_ansi_erase_sequence(display: &mut DisplayState, cursor: &mut CursorState, color: &mut ColorState, code: u8, params: &Params) {
         let mut iter = params.iter();
         let param = iter.next();
-        let erase_code = if param.is_some() {
-            param.unwrap()[0]
+        let erase_code = if let Some(p) = param {
+            p[0]
         } else {
             0
         };
@@ -739,7 +738,7 @@ fn ansi_color(code: u16, iter: &mut ParamsIter) -> Option<Color> {
 fn parse_complex_color(iter: &mut ParamsIter) -> Option<Color> {
     let mode = iter.next()?[0];
 
-    return match mode {
+    match mode {
         2 => {
             let red = iter.next()?[0] as u8;
             let green = iter.next()?[0] as u8;
@@ -756,7 +755,7 @@ fn parse_complex_color(iter: &mut ParamsIter) -> Option<Color> {
             }
         }
         _ => None,
-    };
+    }
 }
 
 impl Perform for LFBTerminal {
