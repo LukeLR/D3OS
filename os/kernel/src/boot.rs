@@ -106,7 +106,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // The bootloader marks the kernel image region as available, so we need to reserve it manually
     unsafe {
         memory::frames::reserve(kernel_image_region());
-        memory::frames::reserve(visible_from_userspace_region());
+        memory::frames::reserve(visible_from_userspace_region()); // TODO Check if this does what it should?
     }
 
     // and initialize kernel heap, after which formatted strings may be used in logs and panics.
@@ -132,14 +132,23 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
         debug!("  ___VISIBLE_FROM_USERMODE_END__: {:p}", &___VISIBLE_FROM_USERMODE_END__);
     }
 
-
     // Initialize CPU information
     init_cpu_info();
 
     // Create kernel process (and initialize virtual memory management)
     info!("Create kernel process and initialize paging");
     let kernel_process = process_manager().write().create_process();
-    kernel_process.kernelmode_address_space.load_address_space();
+    
+    {
+        let address_space = &kernel_process.kernelmode_address_space;
+        /* TODO: This is the first time a function inside the new usermode
+         * visible section is called (0x0000008000000004 in
+         * kernel::memory::vmm::VirtualAddressSpace::load_address_space)
+         * We need to ensure that this section is mapped from its physical
+         * location to this virtual location first.
+         */
+        address_space.load_address_space();
+    }
 
     // Initialize serial port and enable serial logging
     init_serial_port();
