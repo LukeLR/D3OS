@@ -32,8 +32,15 @@ SECTIONS {
     .data : { *(.data*) } AT> high
     
     . = ALIGN (4K);
+    /* The visible_from_usermode section needs to be mapped from its lower
+    region in the kernel region into a higher region starting at 512GiB to
+    make it visible in the userspace in a different entry of the top level
+    page table */
     ___VISIBLE_FROM_USERMODE_START__  = .;
+    
     .visible_from_usermode 0x8000000000 : { *(.visible_from_usermode*) } AT> high
+    
+    /* TODO: Check why ___VISIBLE_FROM_USERMODE_END__ = .; doesn't work here */
     ___VISIBLE_FROM_USERMODE_END__ = ___VISIBLE_FROM_USERMODE_START__ + SIZEOF (.visible_from_usermode);
     ___KERNEL_DATA_END__ = ___VISIBLE_FROM_USERMODE_END__;
 }
