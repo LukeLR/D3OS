@@ -100,13 +100,12 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // Has to be done after EFI boot services have been exited, since they rely on their own GDT
     info!("Initializing GDT");
     init_gdt();
+    
+    info!("Reserving kernel image region");
 
     // The bootloader marks the kernel image region as available, so we need to reserve it manually
     unsafe {
-        info!("Reserving kernel image region");
         memory::frames::reserve(kernel_image_region());
-        info!("Reserving kernel userspace image region"); // TODO Check why this log statement fixes reserving the userspace image
-        memory::frames::reserve(visible_from_userspace_region()); // TODO Check if this does what it should?
     }
 
     // and initialize kernel heap, after which formatted strings may be used in logs and panics.

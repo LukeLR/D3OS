@@ -30,10 +30,10 @@ SECTIONS {
     
     . = ALIGN (4K);
     .data : { *(.data*) } AT> high
-    ___KERNEL_DATA_END__ = .;
     
     . = ALIGN (4K);
     ___VISIBLE_FROM_USERMODE_START__  = .;
     .visible_from_usermode 0x8000000000 : { *(.visible_from_usermode*) } AT> high
     ___VISIBLE_FROM_USERMODE_END__ = ___VISIBLE_FROM_USERMODE_START__ + SIZEOF (.visible_from_usermode);
+    ___KERNEL_DATA_END__ = ___VISIBLE_FROM_USERMODE_END__;
 }
