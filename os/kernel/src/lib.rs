@@ -36,7 +36,7 @@ use crate::process::process_manager::ProcessManager;
 use crate::process::scheduler::Scheduler;
 use crate::process::thread::Thread;
 use crate::syscall::syscall_dispatcher::CoreLocalStorage;
-use ::log::{Level, Log, Record, error};
+use ::log::{Level, Log, Record, error, info};
 use acpi::AcpiTables;
 use alloc::sync::Arc;
 use core::fmt::Arguments;
@@ -348,13 +348,11 @@ pub fn init_terminal(buffer: *mut u8, pitch: u32, width: u32, height: u32, bpp: 
     lfb_terminal.clear();
     TERMINAL.call_once(|| lfb_terminal);
 
-    scheduler().ready(Thread::new_kernel_thread(
-        || {
-            let mut cursor_thread = CursorThread::new(terminal());
-            cursor_thread.run();
-        },
-        "cursor",
-    ));
+    extern "sysv64" fn cursor() {
+        let mut cursor_thread = CursorThread::new(terminal());
+        cursor_thread.run();
+    }
+    scheduler().ready(Thread::new_kernel_thread(cursor, "cursor"));
 }
 
 pub fn terminal_initialized() -> bool {
@@ -374,6 +372,7 @@ static PS2: Once<Arc<PS2>> = Once::new();
 
 pub fn keyboard() -> Option<Arc<Keyboard>> {
     PS2.call_once(|| {
+        info!("Initializing PS/2 devices");
         let mut ps2 = PS2::new();
         match ps2.init_controller() {
             Ok(_) => match ps2.init_keyboard() {

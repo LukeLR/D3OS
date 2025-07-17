@@ -19,7 +19,6 @@ use x86_64::structures::paging::{Page, PageTableFlags};
 use x86_64::structures::paging::page::PageRange;
 use crate::{apic, idt, interrupt_dispatcher, scheduler};
 use crate::memory::MemorySpace;
-
 use log::{info, debug};
 
 #[repr(u8)]
@@ -197,6 +196,8 @@ unsafe impl Send for InterruptDispatcher {}
 unsafe impl Sync for InterruptDispatcher {}
 
 pub fn setup_idt() {
+    info!("Initializing IDT");
+
     let mut idt = idt().lock();
 
     set_general_handler!(&mut idt, handle_exception, 0..31);
@@ -241,20 +242,20 @@ fn handle_page_fault(mut frame: InterruptStackFrame, _index: u8, error: Option<u
 
         if !thread.is_kernel_thread() {
             // Check if page fault occurred inside a user stack
-            let fault_handled = thread.process().kernelmode_address_space // TODO Use usermode address space?
+            let fault_handled = thread.process().kernelmode_address_space
                 .iter_vmas()
                 .filter(|vma| vma.typ == VmaType::UserStack)
                 .find(|stack| stack.start() <= fault_addr && fault_addr < stack.end())
                 .map(|stack| {
                     // If we found a user stack, we can map the page
                     let fault_page = Page::containing_address(fault_addr);
-                    thread.process().kernelmode_address_space.map_partial_vma(&stack, PageRange { start: fault_page, end: fault_page + 1, }, MemorySpace::User, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE); // TODO Use usermode address space?
-
+                    thread.process().kernelmode_address_space.map_partial_vma(&stack, PageRange { start: fault_page, end: fault_page + 1, }, MemorySpace::User, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE);
+                    info!("resolved page fault for user stack of tid = {}, process id  = {}", thread.id(), thread.process().id());
                     ()
                 })
                 // Check if page fault occurred inside the allocated, but not yet mapped heap.
                 .or_else(|| {
-                    thread.process().kernelmode_address_space // TODO Use usermode address space?
+                    thread.process().kernelmode_address_space
                         .iter_vmas()
                         .filter(|vma| vma.typ == VmaType::Heap)
                         .find(|heap| heap.start() <= fault_addr && fault_addr < heap.end())
