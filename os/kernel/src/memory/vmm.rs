@@ -66,8 +66,9 @@ use crate::memory::pages;
 use crate::memory::pages::Paging;
 use crate::memory::{MemorySpace, PAGE_SIZE};
 use crate::process_manager;
-use crate::boot::visible_from_userspace_region;
+use crate::boot::visible_from_usermode_region;
 use crate::memory::vma::{VirtualMemoryArea, VmaType};
+use crate::consts::VISIBLE_FROM_USERMODE_VIRT_START;
 
 /// Clone address space. Used during process creation.
 pub fn clone_address_space(other: &VirtualAddressSpace) -> VirtualAddressSpace {
@@ -77,21 +78,27 @@ pub fn clone_address_space(other: &VirtualAddressSpace) -> VirtualAddressSpace {
 /// Create user address space
 pub fn create_user_address_space() -> VirtualAddressSpace {
     let page_tables = Paging::new(4);
-    let userspace_region = visible_from_userspace_region();
-
-    let range = PageRange {
-        start: Page::from_start_address(VirtAddr::new(userspace_region.start.start_address().as_u64())).expect("Userspace visible start address is not aligned!"),
-        // TODO: The following only works when the end address is properly aligned up to a new frame, which it should be
-        end:   Page::from_start_address(VirtAddr::new(userspace_region.end.start_address().as_u64())).expect("Userspace visible end address is not aligned!"),
-    };
-
-    page_tables.map(
-        range,
-        MemorySpace::User,
-        PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
-    );
     
-    VirtualAddressSpace::new(Arc::new(page_tables))
+    let address_space = VirtualAddressSpace::new(Arc::new(page_tables));
+    let usermode_region = visible_from_usermode_region();
+    let num_pages = (usermode_region.end.start_address() -
+                    usermode_region.start.start_address()) /
+                    usermode_region.start.size() + 1;
+    
+    let start_addr = VirtAddr::new(VISIBLE_FROM_USERMODE_VIRT_START as u64);
+    let start_page = Page::from_start_address(start_addr).expect("Virtual start address for visible_from_userspace section not page aligned!");
+    
+    let vma = address_space.alloc_vma(Some(start_page),
+                                      num_pages,
+                                      MemorySpace::User,
+                                      VmaType::Code,
+                                      "krn_usr").expect("Couldn't allocate VirtualMemoryArea for visible_from_userspace section");
+    
+    address_space.map_pfr_for_vma(&vma, 
+                                  usermode_region,
+                                  PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE);
+    
+    address_space
 }
 
 /// Create kernel address space. Used during process creation.

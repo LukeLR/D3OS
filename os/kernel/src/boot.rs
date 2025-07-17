@@ -437,7 +437,7 @@ fn kernel_image_region() -> PhysFrameRange {
 }
 
 /// Return `PhysFrameRange` for memory that contains kernel parts visible from userspace
-pub fn visible_from_userspace_region() -> PhysFrameRange {
+pub fn visible_from_usermode_region() -> PhysFrameRange {
 	unsafe {
 		page_image_region(&___VISIBLE_FROM_USERMODE_START__, &___VISIBLE_FROM_USERMODE_END__)
 	}
