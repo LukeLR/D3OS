@@ -37,10 +37,7 @@ pub struct Process {
 
 
 impl Process {
-    pub fn new(usermode_page_tables: Arc<Paging>, kernelmode_page_tables: Arc<Paging>) -> Self {
-        let usermode_address_space = VirtualAddressSpace::new(usermode_page_tables);
-        let kernelmode_address_space = VirtualAddressSpace::new_with_vmas(kernelmode_page_tables, usermode_address_space.virtual_memory_areas());
-        
+    pub fn new(usermode_address_space: VirtualAddressSpace, kernelmode_address_space: VirtualAddressSpace) -> Self {
         Self {
             id: next_process_id(),
             usermode_address_space,

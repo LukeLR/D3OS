@@ -30,8 +30,8 @@ impl ProcessManager {
 
     /// Create a new process
     pub fn create_process(&mut self) -> Arc<Process> {
-        let usermode_page_tables = vmm::create_user_address_space();
-        let kernelmode_page_tables = match self.kernel_process() {
+        let usermode_address_space = vmm::create_user_address_space();
+        let kernelmode_address_space = match self.kernel_process() {
             Some(kernel_process) => {
                 // Create copy of kernelmode address space for usermode applications
                 vmm::clone_address_space(&(kernel_process.kernelmode_address_space))
@@ -39,7 +39,7 @@ impl ProcessManager {
             None => vmm::create_kernel_address_space(),
         };
 
-        let process = Arc::new(Process::new(usermode_page_tables, kernelmode_page_tables));
+        let process = Arc::new(Process::new(usermode_address_space, kernelmode_address_space));
         self.active_processes.push(Arc::clone(&process));
 
         info!("Process [{}]: created", process.id());

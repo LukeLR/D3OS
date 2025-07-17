@@ -70,32 +70,32 @@ use crate::boot::visible_from_userspace_region;
 use crate::memory::vma::{VirtualMemoryArea, VmaType};
 
 /// Clone address space. Used during process creation.
-pub fn clone_address_space(other: &VirtualAddressSpace) -> Arc<Paging> {
-    Arc::new(Paging::from_other(&other.page_tables()))
+pub fn clone_address_space(other: &VirtualAddressSpace) -> VirtualAddressSpace {
+    VirtualAddressSpace::clone(other)
 }
 
 /// Create user address space
-pub fn create_user_address_space() -> Arc<Paging> {
-	let address_space = Paging::new(4);
-	let userspace_region = visible_from_userspace_region();
-	
-	let range = PageRange {
-		start: Page::from_start_address(VirtAddr::new(userspace_region.start.start_address().as_u64())).expect("Userspace visible start address is not aligned!"),
-		// TODO: The following only works when the end address is properly aligned up to a new frame, which it should be
-		end:   Page::from_start_address(VirtAddr::new(userspace_region.end.start_address().as_u64())).expect("Userspace visible end address is not aligned!"),
-	};
-	
-	address_space.map(
-		range,
-		MemorySpace::User,
-		PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
-	);
-	
-	Arc::new(address_space)
+pub fn create_user_address_space() -> VirtualAddressSpace {
+    let page_tables = Paging::new(4);
+    let userspace_region = visible_from_userspace_region();
+
+    let range = PageRange {
+        start: Page::from_start_address(VirtAddr::new(userspace_region.start.start_address().as_u64())).expect("Userspace visible start address is not aligned!"),
+        // TODO: The following only works when the end address is properly aligned up to a new frame, which it should be
+        end:   Page::from_start_address(VirtAddr::new(userspace_region.end.start_address().as_u64())).expect("Userspace visible end address is not aligned!"),
+    };
+
+    page_tables.map(
+        range,
+        MemorySpace::User,
+        PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
+    );
+    
+    VirtualAddressSpace::new(Arc::new(page_tables))
 }
 
 /// Create kernel address space. Used during process creation.
-pub fn create_kernel_address_space() -> Arc<Paging> {
+pub fn create_kernel_address_space() -> VirtualAddressSpace {
     let address_space = create_user_address_space(); // Kernel address space should contain user address space as well
     // map all physical addresses 1:1
     let max_phys_addr = phys_limit().start_address();
@@ -104,7 +104,7 @@ pub fn create_kernel_address_space() -> Arc<Paging> {
         end: Page::containing_address(VirtAddr::new(max_phys_addr.as_u64())),
     };
 
-    address_space.map(range, MemorySpace::Kernel, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
+    address_space.page_tables.map(range, MemorySpace::Kernel, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
     address_space
 }
 
@@ -159,6 +159,7 @@ impl Iterator for VmaIterator {
 }
 
 /// All data related to a virtual address space of a process.
+#[derive(Clone)]
 pub struct VirtualAddressSpace {
     virtual_memory_areas: Arc<RwLock<Vec<Arc<VirtualMemoryArea>>>>,
     page_tables: Arc<Paging>,
