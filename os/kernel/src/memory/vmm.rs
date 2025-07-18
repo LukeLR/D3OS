@@ -50,7 +50,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ops::Deref;
-use log::info;
+use log::{info, debug};
 use spin::RwLock;
 
 use x86_64::PhysAddr;
@@ -77,6 +77,7 @@ pub fn clone_address_space(other: &VirtualAddressSpace) -> VirtualAddressSpace {
 
 /// Create user address space
 pub fn create_user_address_space() -> VirtualAddressSpace {
+    debug!("Creating new user address space");
     let page_tables = Paging::new(4);
     
     let address_space = VirtualAddressSpace::new(Arc::new(page_tables));
@@ -88,16 +89,25 @@ pub fn create_user_address_space() -> VirtualAddressSpace {
     let start_addr = VirtAddr::new(VISIBLE_FROM_USERMODE_VIRT_START as u64);
     let start_page = Page::from_start_address(start_addr).expect("Virtual start address for visible_from_userspace section not page aligned!");
     
+    debug!("Alloc'ing pages from user-visible kernel code memory 0x{:x} - 0x{:x} ({} pages) at 0x{:x}",
+           usermode_region.start.start_address(),
+           usermode_region.end.start_address(),
+           num_pages,
+           start_page.start_address());
+    
     let vma = address_space.alloc_vma(Some(start_page),
                                       num_pages,
                                       MemorySpace::User,
                                       VmaType::Code,
                                       "krn_usr").expect("Couldn't allocate VirtualMemoryArea for visible_from_userspace section");
     
+    debug!("Mapping user-visible kernel code into VMA");
+    
     address_space.map_pfr_for_vma(&vma, 
                                   usermode_region,
                                   PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE);
     
+    debug!("Done creating user address space");
     address_space
 }
 
