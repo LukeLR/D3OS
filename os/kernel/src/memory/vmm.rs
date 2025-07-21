@@ -317,6 +317,8 @@ impl VirtualAddressSpace {
 
         let end_page = first_page + num_pages;
         let end_addr = end_page.start_address(); // still safe, since end is exclusive
+        
+        trace!("alloc_at: Checking bounds");
 
         // Bounds check against usable user address range
         if vma_space == MemorySpace::User {
@@ -330,6 +332,8 @@ impl VirtualAddressSpace {
             return None;
         }
         
+        trace!("alloc_at: Creating new VMA");
+        
         // Create new VMA
         let vma_range = PageRange {
             start: first_page,
@@ -337,20 +341,30 @@ impl VirtualAddressSpace {
         };
         let new_vma = Arc::new(VirtualMemoryArea::new_with_tag(vma_space, vma_range, vma_type, vma_tag_str));
         
+        trace!("alloc_at: Checking for overlap with existing VMAs");
+        
         // Check for overlap with existing VMAs
         let mut vmas = self.virtual_memory_areas.write();
+        trace!("alloc_at: Existing VMAs: {:?}", vmas);
+        vmas.iter().map(|vma| trace!("alloc_at: VMA object at {:p}: {:?}", &vma, vma)).collect::<Vec<_>>();
         vmas.sort_by(|a, b| a.range.start.cmp(&b.range.start));
+        trace!("alloc_at: Sorted: VMAs {:?}", vmas);
+        
         for vma in vmas.iter() {
             // Check for overlap with existing VMAs
             if vma.overlaps_with(&new_vma) {
-                warn!("Could not allocate VMA {:?}, it overlaps with {:?}!", new_vma, vma);
+                warn!("alloc_at: Could not allocate VMA {:?}, it overlaps with {:?}!", new_vma, vma);
                 return None;
+            } else {
+                trace!("alloc_at: New VMA {:?} does not overlap with {:?}", new_vma, vma);
             }
         }
+        
+        trace!("alloc_at: Pushing VMA");
 
         // No overlap, add new VMA
         vmas.push(Arc::clone(&new_vma));
-        trace!("Created a new VMA in alloc_at: {:?}", new_vma);
+        trace!("alloc_at: Created a new VMA: {:?}", new_vma);
         Some(new_vma)
     }
 

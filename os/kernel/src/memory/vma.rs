@@ -49,6 +49,7 @@ pub enum VmaType {
 pub const TAG_SIZE: usize = 8; // Define a constant for tag size in bytes
 
 #[derive(Copy, Clone, PartialEq)]
+#[repr(align(4))]
 pub struct VirtualMemoryArea {
     pub space: MemorySpace,
     pub range: PageRange,
