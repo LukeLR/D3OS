@@ -97,7 +97,7 @@ impl Logger {
         }
 
         Self {
-            level: if built_info::PROFILE == "debug" { Level::Debug } else { Level::Info },
+            level: if built_info::PROFILE == "debug" { Level::Trace } else { Level::Info },
             streams: RwLock::new(Vec::new()),
             serial
         }
