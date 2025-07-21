@@ -30,6 +30,7 @@ SECTIONS {
     
     . = ALIGN (4K);
     .data : { *(.data*) } AT> high
+    ___KERNEL_DATA_END__ = .;
     
     . = ALIGN (4K);
     /* The visible_from_usermode section needs to be mapped from its lower
@@ -42,5 +43,5 @@ SECTIONS {
     
     /* TODO: Check why ___VISIBLE_FROM_USERMODE_END__ = .; doesn't work here */
     ___VISIBLE_FROM_USERMODE_END__ = ___VISIBLE_FROM_USERMODE_START__ + SIZEOF (.visible_from_usermode);
-    ___KERNEL_DATA_END__ = ___VISIBLE_FROM_USERMODE_END__;
+    
 }
