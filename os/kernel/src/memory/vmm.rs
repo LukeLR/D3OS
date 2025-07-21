@@ -346,7 +346,9 @@ impl VirtualAddressSpace {
         // Check for overlap with existing VMAs
         let mut vmas = self.virtual_memory_areas.write();
         trace!("alloc_at: Existing VMAs: {:?}", vmas);
-        vmas.iter().map(|vma| trace!("alloc_at: VMA object at {:p}: {:?}", &vma, vma)).collect::<Vec<_>>();
+        for vma in vmas.iter_mut() {
+            trace!("alloc_at: VMA object, &vma: {:p} vma: {:p}, *vma: {:p}, size: 0x{:x}: {:?}", &vma, vma, *vma, core::mem::size_of::<VirtualMemoryArea>(), vma);
+        }
         vmas.sort_by(|a, b| a.range.start.cmp(&b.range.start));
         trace!("alloc_at: Sorted: VMAs {:?}", vmas);
         
@@ -360,12 +362,16 @@ impl VirtualAddressSpace {
             }
         }
         
-        trace!("alloc_at: Pushing VMA");
+        let vma_clone = Arc::clone(&new_vma);
+        trace!("alloc_at: Pushing VMA clone at {:p}", vma_clone);
 
         // No overlap, add new VMA
-        vmas.push(Arc::clone(&new_vma));
-        trace!("alloc_at: Created a new VMA: {:?}", new_vma);
-        Some(new_vma)
+        vmas.push(vma_clone);
+        trace!("alloc_at: Created a new VMA object at {:p}: {:?}", &new_vma, new_vma);
+        let result = Some(new_vma);
+        trace!("alloc_at: Wrapped new VMA object into optional at {:p}", &result);
+        
+        result
     }
 
     /// Allocates a virtual memory region for `num_pages` pages (starting from any free page) \
