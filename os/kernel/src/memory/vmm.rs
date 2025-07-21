@@ -50,7 +50,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ops::Deref;
-use log::{info, debug};
+use log::{warn, info, debug, trace};
 use spin::RwLock;
 
 use x86_64::PhysAddr;
@@ -231,10 +231,20 @@ impl VirtualAddressSpace {
     pub fn alloc_vma(
         &self, start_page: Option<Page>, num_pages: u64, vma_space: MemorySpace, vma_type: VmaType, vma_tag: &str,
     ) -> Option<Arc<VirtualMemoryArea>> {
-        match start_page {
-            Some(start_page) => self.alloc_at(start_page, num_pages, vma_space, vma_type, vma_tag),
-            None => self.alloc(num_pages, vma_space, vma_type, vma_tag),
-        }
+        debug!("Called alloc_vma with start_page: {:?}, num_pages: {}, vma_space: {:?}, vma_type: {:?}, vma_tag: {}", start_page, num_pages, vma_space, vma_type, vma_tag);
+        
+        let result = match start_page {
+            Some(start_page) => {
+                trace!("alloc_vma has start_page, calling alloc_at!");
+                self.alloc_at(start_page, num_pages, vma_space, vma_type, vma_tag)
+            },
+            None => {
+                trace!("alloc_vma has no start_page, calling alloc_at!");
+                self.alloc(num_pages, vma_space, vma_type, vma_tag)
+            },
+        };
+        debug!("Alloc'd a VMA: {:?}", result);
+        result
     }
 
     /// Tries to allocate a frame range for the full `vma`. \
@@ -311,32 +321,36 @@ impl VirtualAddressSpace {
         // Bounds check against usable user address range
         if vma_space == MemorySpace::User {
             if start_addr < self.first_usable_user_addr || end_addr > self.last_usable_user_addr {
+                warn!("Trying to alloc_at in user memory space with invalid bounds: 0x{:x} - 0x{:x}", start_addr, end_addr);
                 return None;
             }
         // Bounds check against usable kernel address range
         } else if end_addr > self.last_usable_user_addr {
+            warn!("Trying to alloc_at in kernel memory space with invalid end address: 0x{:x}", end_addr);
             return None;
         }
-
+        
         // Create new VMA
         let vma_range = PageRange {
             start: first_page,
             end: first_page + num_pages,
         };
         let new_vma = Arc::new(VirtualMemoryArea::new_with_tag(vma_space, vma_range, vma_type, vma_tag_str));
-
+        
         // Check for overlap with existing VMAs
         let mut vmas = self.virtual_memory_areas.write();
         vmas.sort_by(|a, b| a.range.start.cmp(&b.range.start));
         for vma in vmas.iter() {
             // Check for overlap with existing VMAs
             if vma.overlaps_with(&new_vma) {
+                warn!("Could not allocate VMA {:?}, it overlaps with {:?}!", new_vma, vma);
                 return None;
             }
         }
 
         // No overlap, add new VMA
         vmas.push(Arc::clone(&new_vma));
+        trace!("Created a new VMA in alloc_at: {:?}", new_vma);
         Some(new_vma)
     }
 
@@ -379,9 +393,13 @@ impl VirtualAddressSpace {
 
         if available >= requested_region_size {
             let candidate_page = Page::containing_address(last_addr);
+            trace!("Will alloc a VMA at {:?}, num_pages: {}, vma_space: {:?}, vma_type: {:?}, vma_tag: {}",
+                   candidate_page, num_pages, vma_space, vma_type, vma_tag);
             return self.alloc_at(candidate_page, num_pages, vma_space, vma_type, vma_tag);
         }
-
+        
+        warn!("No space found in alloc! num_pages: {}, vma_space: {:?}, vma_type: {:?}, vma_tag: {}",
+              num_pages, vma_space, vma_type, vma_tag);
         None // No space found
     }
 
