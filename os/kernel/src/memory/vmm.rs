@@ -349,6 +349,7 @@ impl VirtualAddressSpace {
         for vma in vmas.iter_mut() {
             trace!("alloc_at: VMA object, &vma: {:p} vma: {:p}, *vma: {:p}, size: 0x{:x}: {:?}", &vma, vma, *vma, core::mem::size_of::<VirtualMemoryArea>(), vma);
         }
+        vmas.iter().map(|vma| trace!("alloc_at: VMA object at {:p}: {:?}", &vma, vma)).collect::<Vec<_>>();
         vmas.sort_by(|a, b| a.range.start.cmp(&b.range.start));
         trace!("alloc_at: Sorted: VMAs {:?}", vmas);
         
