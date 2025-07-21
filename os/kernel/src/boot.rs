@@ -449,8 +449,8 @@ fn page_image_region(start_address: &(), end_address: &()) -> PhysFrameRange {
     let end: PhysFrame;
     
 	unsafe {
-        start = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(&___KERNEL_DATA_START__) as u64)).expect("Kernel code is not page aligned");
-        end = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(&___KERNEL_DATA_END__) as u64).align_up(PAGE_SIZE as u64)).unwrap();
+        start = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(start_address) as u64)).expect("Kernel code is not page aligned");
+        end = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(end_address) as u64).align_up(PAGE_SIZE as u64)).unwrap();
     }
 
     PhysFrameRange { start, end }
