@@ -99,6 +99,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     let image_region = kernel_image_region();
     unsafe {
         info!("Reserving kernel image region");
+        debug!("Additional print statement to fix boot");
         memory::frames::reserve(image_region);
         info!("Reserving visible from usermode kernel image region");
         memory::frames::reserve(visible_from_usermode_region());
