@@ -15,4 +15,4 @@ pub const KERNEL_STACK_PAGES: usize = 64;
 pub const STACK_ENTRY_SIZE: usize = 8;  
 
 // Map user-space visible kernel code to 512GiB so it will reside in a new entry on the top level page frame
-pub const VISIBLE_FROM_USERMODE_VIRT_START: usize = 0x18000000000; // Defined in link.ld
+pub const VISIBLE_FROM_USERMODE_VIRT_START: usize = 0x8000000000; // Defined in link.ld

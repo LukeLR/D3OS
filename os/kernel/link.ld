@@ -39,7 +39,7 @@ SECTIONS {
     page table */
     ___VISIBLE_FROM_USERMODE_START__  = .;
     
-    .visible_from_usermode 0x18000000000 : { *(.visible_from_usermode*) } AT> high
+    .visible_from_usermode 0x8000000000 : { *(.visible_from_usermode*) } AT> high
     
     /* TODO: Check why ___VISIBLE_FROM_USERMODE_END__ = .; doesn't work here */
     ___VISIBLE_FROM_USERMODE_END__ = ___VISIBLE_FROM_USERMODE_START__ + SIZEOF (.visible_from_usermode);

@@ -97,7 +97,7 @@ pub fn create_user_address_space() -> VirtualAddressSpace {
     
     let vma = address_space.alloc_vma(Some(start_page),
                                       num_pages,
-                                      MemorySpace::User,
+                                      MemorySpace::Kernel,
                                       VmaType::Code,
                                       "krn_usr").expect("Couldn't allocate VirtualMemoryArea for visible_from_userspace section");
     
