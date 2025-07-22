@@ -160,6 +160,10 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     
     {
         let address_space = &kernel_process.kernelmode_address_space;
+        
+        address_space.page_tables().dump();
+        
+        
         /* TODO: This is the first time a function inside the new usermode
          * visible section is called (0x0000008000000004 in
          * kernel::memory::vmm::VirtualAddressSpace::load_address_space)
