@@ -84,7 +84,7 @@ pub fn create_user_address_space() -> VirtualAddressSpace {
     let usermode_region = visible_from_usermode_region();
     let num_pages = (usermode_region.end.start_address() -
                     usermode_region.start.start_address()) /
-                    usermode_region.start.size() + 1;
+                    usermode_region.start.size();
     
     let start_addr = VirtAddr::new(VISIBLE_FROM_USERMODE_VIRT_START as u64);
     let start_page = Page::from_start_address(start_addr).expect("Virtual start address for visible_from_userspace section not page aligned!");
@@ -103,9 +103,9 @@ pub fn create_user_address_space() -> VirtualAddressSpace {
     
     debug!("Mapping user-visible kernel code into VMA");
     
-    address_space.map_pfr_for_vma(&vma, 
+    address_space.map_pfr_for_vma(&vma,
                                   usermode_region,
-                                  PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE);
+                                  PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE).expect("Couldn't map visible_from_userspace section into VMA!");
     
     debug!("Done creating user address space");
     address_space
