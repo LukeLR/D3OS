@@ -171,7 +171,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
          * We need to ensure that this section is mapped from its physical
          * location to this virtual location first.
          */
-        address_space.load_address_space();
+        address_space.load_address_space_kernel();
     }
 
     // Initialize serial port and enable serial logging

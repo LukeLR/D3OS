@@ -221,6 +221,10 @@ impl VirtualAddressSpace {
         self.page_tables.load();
     }
     
+    pub fn load_address_space_kernel(&self) {
+        self.page_tables.load_kernel();
+    }
+    
     pub fn address_space_loaded(&self) -> bool {
         self.page_tables.is_loaded()
     }

@@ -90,6 +90,10 @@ impl Paging {
         unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
     }
     
+    pub(super) fn load_kernel(&self) {
+        unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
+    }
+    
     pub(super) fn is_loaded(&self) -> bool {
         unsafe {
             let (phys_frame, _) = Cr3::read();
