@@ -98,10 +98,10 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // The bootloader marks the kernel image region as available, so we need to reserve it manually
     let image_region = kernel_image_region();
     unsafe {
-        info!("Reserving kernel image region");
-        debug!("Additional print statement to fix boot");
+        //info!("Reserving kernel image region");
+        //debug!("Additional print statement to fix boot");
         memory::frames::reserve(image_region);
-        info!("Reserving visible from usermode kernel image region");
+        //info!("Reserving visible from usermode kernel image region");
         memory::frames::reserve(visible_from_usermode_region());
     }
 
