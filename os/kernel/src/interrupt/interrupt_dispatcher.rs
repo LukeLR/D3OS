@@ -286,8 +286,8 @@ fn handle_exception(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
 
 #[unsafe(link_section = ".visible_from_usermode")]
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
-    println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
     execute_in_switched_address_space!(frame, {
+        println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
         scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame);
     });
 }
