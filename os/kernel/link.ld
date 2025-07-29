@@ -32,14 +32,17 @@ SECTIONS {
     .data : { *(.data*) } AT> high
     ___KERNEL_DATA_END__ = .;
     
-    . = ALIGN (4K);
     /* The visible_from_usermode section needs to be mapped from its lower
     region in the kernel region into a higher region starting at 512GiB to
     make it visible in the userspace in a different entry of the top level
     page table */
-    ___VISIBLE_FROM_USERMODE_START__  = .;
     
-    .visible_from_usermode 0x8000000000 : { *(.visible_from_usermode*) } AT> high
+    .visible_from_usermode 0x8000000000 : ALIGN (4K) { *(.visible_from_usermode*) } AT> high
+    
+    /* Setting . = ALIGN (4K); before the .visible_from_usermode section
+    will be ignored, therefore we need to set ALIGN (4K) as part of the
+    section, and compute ___VISIBLE_FROM_USERMODE_START__ manually */
+    ___VISIBLE_FROM_USERMODE_START__  = LOADADDR(.visible_from_usermode);
     
     /* TODO: Check why ___VISIBLE_FROM_USERMODE_END__ = .; doesn't work here */
     ___VISIBLE_FROM_USERMODE_END__ = ___VISIBLE_FROM_USERMODE_START__ + SIZEOF (.visible_from_usermode);
