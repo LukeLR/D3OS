@@ -173,7 +173,10 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
          */
         address_space.load_address_space_kernel();
     }
-
+    
+    debug!("Testing visible_from_userspace section, calling function at {:p}", interrupt_dispatcher::execute_in_switched_address_space_test as *const ());
+    interrupt_dispatcher::execute_in_switched_address_space_test(CS::get_reg());
+    
     // Initialize serial port and enable serial logging
     init_serial_port();
     if let Some(serial) = serial_port() {
@@ -249,6 +252,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // Enable interrupts
     info!("Enabling interrupts");
     interrupts::enable();
+    info!("Interrupts enabled");
 
     // Initialize EFI runtime service (if available and not done already during memory initialization)
     if uefi::table::system_table_raw().is_none() {
