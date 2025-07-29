@@ -98,7 +98,7 @@ pub fn create_user_address_space() -> VirtualAddressSpace {
     
     let vma = address_space.alloc_vma(Some(start_page),
                                       num_pages,
-                                      MemorySpace::User,
+                                      MemorySpace::UserAccessible,
                                       VmaType::Code,
                                       "krn_usr").expect("Couldn't allocate VirtualMemoryArea for visible_from_userspace section");
     
@@ -314,16 +314,26 @@ impl VirtualAddressSpace {
         
         trace!("alloc_at: Checking bounds");
 
-        // Bounds check against usable user address range
-        if vma_space == MemorySpace::User {
-            if start_addr < self.first_usable_user_addr || end_addr > self.last_usable_user_addr {
-                warn!("Trying to alloc_at in user memory space with invalid bounds: 0x{:x} - 0x{:x}", start_addr, end_addr);
-                return None;
+        // Bounds check against usable address range
+        match vma_space {
+            MemorySpace::User => {
+                if start_addr < self.first_usable_user_addr || end_addr > self.last_usable_user_addr {
+                    warn!("Trying to alloc_at in user memory space with invalid bounds: 0x{:x} - 0x{:x}", start_addr, end_addr);
+                    return None;
+                }
             }
-        // Bounds check against usable kernel address range
-        } else if end_addr > self.last_usable_user_addr {
-            warn!("Trying to alloc_at in kernel memory space with invalid end address: 0x{:x}", end_addr);
-            return None;
+            MemorySpace::Kernel => {
+                if end_addr > self.last_usable_user_addr {
+                    warn!("Trying to alloc_at in kernel memory space with invalid end address: 0x{:x}", end_addr);
+                    return None;
+                }
+            }
+            MemorySpace::UserAccessible => {
+                if start_addr.as_u64() < VISIBLE_FROM_USERMODE_VIRT_START as u64 || end_addr > self.first_usable_user_addr {
+                    warn!("Trying to alloc_at in UserAccessible memory space with invalid bounds: 0x{:x} - 0x{:x}", start_addr, end_addr);
+                    return None;
+                }
+            }
         }
         
         trace!("alloc_at: Creating new VMA");

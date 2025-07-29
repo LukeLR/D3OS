@@ -289,7 +289,7 @@ impl Paging {
         } else { // Reached level 1 page table
             total_allocated_pages += match space {
                 MemorySpace::Kernel => Paging::identity_map_kernel(table, pages, flags),
-                MemorySpace::User => {
+                MemorySpace::User | MemorySpace::UserAccessible => {
                     if frames.start == frames.end {
                         Paging::map_user(table, pages, flags)
                     } else {

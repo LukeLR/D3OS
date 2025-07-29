@@ -162,7 +162,7 @@ impl VirtualMemoryArea {
     /// Helper function to check if flags are consistent with the vma
     pub fn check_and_enforce_consistency(&self, mut flags: PageTableFlags) -> PageTableFlags {
         match self.space {
-            MemorySpace::User => {
+            MemorySpace::User | MemorySpace::UserAccessible => {
                 flags |= PageTableFlags::USER_ACCESSIBLE;
             }
             MemorySpace::Kernel => {
