@@ -23,12 +23,14 @@ SECTIONS {
     . = ALIGN (4K);
     .text : { *(.text*) } AT> high
     
-    . = ALIGN (4K);
-    ___BSS_START__ = .;
-   .bss : { *(".bss*") } AT> high
-    ___BSS_END__ = .;
+    . = 29M;
+    .bss : ALIGN (4K) {
+        ___BSS_START__ = .;
+        *(".bss*")
+        ___BSS_END__ = .;
+    } AT> high
     
-    . = ALIGN (4K);
+    . = 31M;
     .data : { *(.data*) } AT> high
     ___KERNEL_DATA_END__ = .;
     
