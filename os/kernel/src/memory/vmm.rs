@@ -236,7 +236,7 @@ impl VirtualAddressSpace {
     pub fn alloc_vma(
         &self, start_page: Option<Page>, num_pages: u64, vma_space: MemorySpace, vma_type: VmaType, vma_tag: &str,
     ) -> Option<Arc<VirtualMemoryArea>> {
-        debug!("Called alloc_vma with start_page: {:?}, num_pages: {}, vma_space: {:?}, vma_type: {:?}, vma_tag: {}", start_page, num_pages, vma_space, vma_type, vma_tag);
+        trace!("Called alloc_vma with start_page: {:?}, num_pages: {}, vma_space: {:?}, vma_type: {:?}, vma_tag: {}", start_page, num_pages, vma_space, vma_type, vma_tag);
         
         let result = match start_page {
             Some(start_page) => {
@@ -248,7 +248,7 @@ impl VirtualAddressSpace {
                 self.alloc(num_pages, vma_space, vma_type, vma_tag)
             },
         };
-        debug!("Alloc'd a VMA: {:?}", result);
+        trace!("Alloc'd a VMA: {:?}", result);
         result
     }
 
@@ -349,18 +349,14 @@ impl VirtualAddressSpace {
         
         // Check for overlap with existing VMAs
         let mut vmas = self.virtual_memory_areas.write();
-        trace!("alloc_at: Existing VMAs: {:?}", vmas);
-        vmas.iter().map(|vma| trace!("alloc_at: VMA object, &vma: {:p} vma: {:p}, *vma: {:p}, size: 0x{:x}: {:?}", &vma, vma, *vma, core::mem::size_of::<VirtualMemoryArea>(), vma)).collect::<Vec<_>>();
         vmas.sort_by(|a, b| a.range.start.cmp(&b.range.start));
-        trace!("alloc_at: Sorted: VMAs {:?}", vmas);
+        trace!("alloc_at: Existing VMAs sorted {:?}", vmas);
         
         for vma in vmas.iter() {
             // Check for overlap with existing VMAs
             if vma.overlaps_with(&new_vma) {
                 warn!("alloc_at: Could not allocate VMA {:?}, it overlaps with {:?}!", new_vma, vma);
                 return None;
-            } else {
-                trace!("alloc_at: New VMA {:?} does not overlap with {:?}", new_vma, vma);
             }
         }
         

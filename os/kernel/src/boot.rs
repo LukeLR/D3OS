@@ -76,7 +76,7 @@ const INIT_HEAP_PAGES: usize = 0x400; // number of heap pages for booting the OS
 pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInformationHeader) {
     // Initialize logger
     log::set_logger(logger())
-        .map(|()| log::set_max_level(LevelFilter::Trace))
+        .map(|()| log::set_max_level(LevelFilter::Debug))
         .expect("Failed to initialize logger!");
 
     // Log messages and panics are now working, but cannot use format string until the heap is initialized later on
@@ -161,9 +161,6 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     
     {
         let address_space = &kernel_process.kernelmode_address_space;
-        
-        address_space.dump(1);
-        address_space.page_tables().dump();
         
         /* TODO: This is the first time a function inside the new usermode
          * visible section is called (0x0000008000000004 in
