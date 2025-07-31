@@ -184,13 +184,13 @@ impl Paging {
         Paging::set_flags_in_table(root_table, pages, flags, depth);
     }
     
-    pub fn dump(&self) {
+    pub fn dump(&self, pid: usize, memory_space: MemorySpace) {
         // TODO: A read lock should be enough, maybe we can do without unsafe?
         let root_table_guard = self.root_table.write();
         let root_table = unsafe { root_table_guard.as_mut().unwrap() };
         let mut area: PageTableArea = PageTableArea::new(None, 0);
         
-        debug!("Dumping page tables");
+        info!("{memory_space:?} Page tables of process [{pid}]");
         
         Paging::dump_table(root_table, 0, 4, &mut area);
     }
@@ -546,7 +546,7 @@ impl PageTableArea {
     
     pub fn check(&mut self, current_address: usize) {
         if let Some(value) = &self.area_type {
-            info!("{:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?}",
+            info!("   {:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?}",
                     value,
                     self.start_address,
                     current_address - 1,

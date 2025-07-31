@@ -109,8 +109,7 @@ impl ProcessManager {
 
         for (i, process) in self.active_processes.iter().enumerate() {
             info!("Process #{}: PID={}", i, process.id());
-            process.usermode_address_space.dump(process.id());
-            process.kernelmode_address_space.dump(process.id());
+            process.dump();
         }
         info!("=============================");
     }

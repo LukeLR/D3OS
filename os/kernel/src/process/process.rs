@@ -88,8 +88,8 @@ impl Process {
 
 
     pub fn dump(&self) {
-        self.usermode_address_space.dump(self.id);
-        self.kernelmode_address_space.dump(self.id);
+        self.usermode_address_space.dump(self.id, MemorySpace::User);
+        self.kernelmode_address_space.dump(self.id, MemorySpace::Kernel);
     }
 
 }

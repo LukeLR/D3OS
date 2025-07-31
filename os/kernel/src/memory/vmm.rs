@@ -447,12 +447,13 @@ impl VirtualAddressSpace {
     }
 
     /// Dump all virtual memory areas of this address space
-    pub fn dump(&self, pid: usize) {
-        info!("VMAs of process [{pid}]");
+    pub fn dump(&self, pid: usize, memory_space: MemorySpace) {
+        info!("{memory_space:?} VMAs of process [{pid}]");
         let areas = self.virtual_memory_areas.read();
         for area in areas.iter() {
             info!("{area:?}");
         }
+        self.page_tables().dump(pid, memory_space);
     }
 
     /// Helper function to align an address up to the next page boundary.
