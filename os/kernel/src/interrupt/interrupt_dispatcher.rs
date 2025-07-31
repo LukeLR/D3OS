@@ -219,12 +219,12 @@ const kernel_segment: SegmentSelector = SegmentSelector::new(1, PrivilegeLevel::
 macro_rules! execute_in_switched_address_space {
     ($code_segment: expr, $code: block) => {
         if $code_segment != kernel_segment {
-            //debug!("Switching address space for frame {:?}", $frame);
             unsafe {
                 scheduler().current_thread().enable_kernel_address_space(true);
             }
+            debug!("Switched address space!");
             $code
-            //debug!("Restoring address space for frame {:?}", $frame);
+            debug!("Restoring address space!");
             unsafe {
                 scheduler().current_thread().enable_kernel_address_space(false);
             }
