@@ -16,7 +16,7 @@ use crate::interrupt::interrupt_dispatcher;
 use crate::memory::nvmem::Nfit;
 use crate::memory::pages::page_table_index;
 use crate::memory::vma::VmaType;
-use crate::memory::{MemorySpace, PAGE_SIZE, nvmem};
+use crate::memory::{PAGE_SIZE, nvmem};
 use crate::network::rtl8139;
 use crate::process::thread::Thread;
 use crate::syscall::syscall_dispatcher;
@@ -54,7 +54,7 @@ use x86_64::registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags};
 use x86_64::registers::segmentation::SegmentSelector;
 use x86_64::structures::gdt::Descriptor;
 use x86_64::structures::paging::frame::PhysFrameRange;
-use x86_64::structures::paging::{Page, PageTable, PageTableFlags, PhysFrame};
+use x86_64::structures::paging::{PageTable, PageTableFlags, PhysFrame};
 use x86_64::{PhysAddr, VirtAddr};
 
 // import labels from linker script 'link.ld'
@@ -96,28 +96,22 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     init_gdt();
 
     // The bootloader marks the kernel image region as available, so we need to reserve it manually
-    let image_region = kernel_image_region();
+    let kernel_image_region = kernel_image_region();
     unsafe {
         //info!("Reserving kernel image region");
         //debug!("Additional print statement to fix boot");
-        memory::frames::reserve(image_region);
+        memory::frames::reserve(kernel_image_region);
         //info!("Reserving visible from usermode kernel image region");
         memory::frames::reserve(visible_from_usermode_region());
     }
 
     // and initialize kernel heap, after which formatted strings may be used in logs and panics.
     info!("Initializing kernel heap");
-    let heap_region = memory::vmm::alloc_frames(INIT_HEAP_PAGES);
+    let heap_region = unsafe { memory::vmm::alloc_frames(INIT_HEAP_PAGES) };
     unsafe {
         allocator().init(&heap_region);
     }
-    debug!(
-        "Kernel heap is initialized [0x{:x} - 0x{:x}]",
-        heap_region.start.start_address().as_u64(),
-        heap_region.end.start_address().as_u64()
-    );
-    debug!("Page frame allocator:\n{}", memory::frames::dump());
-    
+
     unsafe {
         debug!("Labels from linker script:");
         debug!("  ___KERNEL_DATA_START__: {:p}", &___KERNEL_DATA_START__);
@@ -133,47 +127,10 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
 
     // Create kernel process (and initialize virtual memory management)
     info!("Create kernel process and initialize paging");
-    let kernel_process = process_manager().write().create_process();
-    
-    // TODO: adjust this when removing 1:1 mapping
-    kernel_process
-        .kernelmode_address_space
-        .alloc_vma(
-            Some(Page::from_start_address(VirtAddr::new(heap_region.start.start_address().as_u64())).unwrap()),
-            heap_region.len(),
-            MemorySpace::Kernel,
-            VmaType::Heap,
-            "heap",
-        )
-        .expect("failed to create VMA for kernel heap");
-    // TODO: stack is part of BSS, which is part of code
-    kernel_process
-        .kernelmode_address_space
-        .alloc_vma(
-            Some(Page::from_start_address(VirtAddr::new(image_region.start.start_address().as_u64())).unwrap()),
-            image_region.len(),
-            MemorySpace::Kernel,
-            VmaType::Code,
-            "code",
-        )
-        .expect("failed to create VMA for kernel code");
+
+    let kernel_process = process_manager().write().create_kernel_process(kernel_image_region, heap_region);
     kernel_process.dump();
-    
-    {
-        let address_space = &kernel_process.kernelmode_address_space;
-        
-        /* TODO: This is the first time a function inside the new usermode
-         * visible section is called (0x0000008000000004 in
-         * kernel::memory::vmm::VirtualAddressSpace::load_address_space)
-         * We need to ensure that this section is mapped from its physical
-         * location to this virtual location first.
-         */
-        address_space.load_address_space_kernel();
-    }
-    
-    debug!("Testing visible_from_userspace section, calling function at {:p}", interrupt_dispatcher::execute_in_switched_address_space_test as *const ());
-    interrupt_dispatcher::execute_in_switched_address_space_test(CS::get_reg());
-    
+
     // Initialize serial port and enable serial logging
     init_serial_port();
     if let Some(serial) = serial_port() {

@@ -38,7 +38,7 @@ use crate::consts::USER_SPACE_ENV_START;
 use crate::memory::stack;
 use crate::memory::stack::StackAllocator;
 use crate::memory::vma::VmaType;
-use crate::memory::{MemorySpace, PAGE_SIZE};
+use crate::memory::PAGE_SIZE;
 use crate::process::process::Process;
 use crate::process::scheduler;
 use crate::syscall::syscall_dispatcher::CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX;
@@ -201,51 +201,10 @@ impl Thread {
         //
         // Create user stack for the application
         //
+        let stack_vma = parent.kernelmode_address_space.user_alloc_map_partial(None, (MAX_USER_STACK_SIZE / PAGE_SIZE) as u64,  VmaType::UserStack, "usrstack", 1, true).expect("could not create user stack");
 
-        // get highest stack vma in my address space
-        let highest_stack_vma = parent
-            .kernelmode_address_space
-            .iter_vmas()
-            .filter(|vma| vma.typ == VmaType::UserStack)
-            .max_by(|a, b| a.range.end.cmp(&b.range.end));
-        let stack_start = if let Some(vma) = highest_stack_vma {
-            // from there allocate new user stack
-            let user_stack_start: Page<Size4KiB> = Page::from_start_address(vma.end()).unwrap();
-            let user_stack_end = user_stack_start + (MAX_USER_STACK_SIZE / PAGE_SIZE) as u64;
-
-            let user_stack_pages = PageRange {
-                start: user_stack_start,
-                end: user_stack_end,
-            };
-            user_stack_pages.start.start_address().as_u64() as usize
-        } else {
-            MAIN_USER_STACK_START
-        };
-
-        // Alloc user stack for the main thread
-        let user_stack: Vec<u64, StackAllocator> = stack::alloc_user_stack(pid, tid, stack_start, MAX_USER_STACK_SIZE);
-
-        // Allocate virtual memory area for user stack
-        let user_stack_vma = parent
-            .kernelmode_address_space
-            .alloc_vma(
-                Some(user_stack.allocator().get_start_page()),
-                user_stack.allocator().get_num_pages(),
-                MemorySpace::User,
-                VmaType::UserStack,
-                "user",
-            )
-            .expect("alloc_vma failed for user stack of user thread");
-
-        parent.kernelmode_address_space.map_partial_vma(
-            &user_stack_vma,
-            PageRange {
-                start: user_stack_vma.range.end - 1,
-                end: user_stack_vma.range.end,
-            },
-            MemorySpace::User,
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
-        );
+        // Make a Vec for the user stack
+        let user_stack: Vec<u64, StackAllocator> = stack::alloc_user_stack(pid, tid, stack_vma.start().as_u64() as usize, MAX_USER_STACK_SIZE);
 
         // create user thread and prepare the stack for starting it later
         let thread = Thread {
@@ -256,8 +215,6 @@ impl Thread {
             entry,
             signals: Mutex::new(Signals::new())
         };
-
-        info!("Created user stack for thread at 0x{stack_start:x?}");
 
         thread.prepare_kernel_stack();
         Arc::new(thread)
@@ -385,10 +342,6 @@ impl Thread {
         let stack_addr = stacks.kernel_stack.as_ptr() as u64;
         let capacity = stacks.kernel_stack.capacity();
 
-        /*        info!(
-            "Preparing kernel stack for thread {} with capacity {}",
-            self.id, capacity
-        );*/
         // init stack with 0s
         for _ in 0..stacks.kernel_stack.capacity() {
             stacks.kernel_stack.push(0);

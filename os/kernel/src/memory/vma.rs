@@ -1,39 +1,19 @@
 /* ╔═════════════════════════════════════════════════════════════════════════╗
-   ║ Module: virtual memory management                                       ║
+   ║ Module: virtual memory area                                             ║
    ╟─────────────────────────────────────────────────────────────────────────╢
-   ║ Functions related to a virtual memory management of a process address   ║
-   ║ space. This includes managing virtual memory areas, allocating frames   ║
-   ║ for full or partial vmas, as well as creating page mappings.            ║
-   ║                                                                         ║
-   ║ Public functions:                                                       ║
-   ║   - alloc_vma                 allocate a page range in an address space ║
-   ║   - alloc_pfr_for_vma         allocate pf range for full vma            ║
-   ║   - alloc_pfr_for_partial_vma alloc pf range for a subrange of a vma    ║
-   ║   - map_pfr_for_vma           map pf range for full vma                 ║
-   ║   - map_pfr_for_partial_vma   map pf range for subrange of a vma        ║
-   ║   - map_partial_vma           map a sub page range of a vma by          ║
-   ║                               allocating frames as needed               ║
-   ║                                                                         ║
-   ║   - map_pfr_identity          map the given pf range - identity mapped  ║
-   ║                                                                         ║
-   ║   - clone_address_space       used for process creation                 ║
-   ║   - create_kernel_address_space   used for process creation             ║
-   ║   - iter_vmas                 Iterate over all VMAs                     ║
-   ║   - dump                      dump all VMAs of an address space         ║
-   ║   - page_table_address        get root page table address               ║
-   ║   - set_flags                 set page table flags                      ║
+   ║ Functions related to a virtual memory area (VMA). A VMA describes a     ║
+   ║ region in the virtial address space of a process.                       ║
    ╟─────────────────────────────────────────────────────────────────────────╢
    ║ Author: Fabian Ruhland and Michael Schoettner                           ║
-   ║         Univ. Duesseldorf, 26.06.2025                                   ║
+   ║         Univ. Duesseldorf, 20.07.2025                                   ║
    ╚═════════════════════════════════════════════════════════════════════════╝
 */
 
+use crate::memory::{MemorySpace, PAGE_SIZE};
 use core::fmt;
 use x86_64::VirtAddr;
 use x86_64::structures::paging::page::PageRange;
-use x86_64::structures::paging::{Page, PageTableFlags};
-use crate::memory::{MemorySpace,PAGE_SIZE};
-
+use x86_64::structures::paging::PageTableFlags;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum VmaType {
@@ -43,10 +23,11 @@ pub enum VmaType {
     DeviceMemory,
     UserStack,
     KernelStack,
+    KernelBuffer,
     Anonymous,
 }
 
-pub const TAG_SIZE: usize = 8; // Define a constant for tag size in bytes
+pub const TAG_SIZE: usize = 16; // Define a constant for tag size in bytes
 
 #[derive(Copy, Clone, PartialEq)]
 #[repr(align(32))]
@@ -58,20 +39,11 @@ pub struct VirtualMemoryArea {
 }
 
 impl VirtualMemoryArea {
-    /// Create a new VirtualMemoryArea with a given range and type and a tag name
-    pub const fn new_with_tag(
-        space: MemorySpace,
-        range: PageRange,
-        typ: VmaType,
-        tag_str: &str,
-    ) -> Self {
+    /// Create a new `VirtualMemoryArea` with `space`, `range`, `typ`, and `tag_str` name
+    pub const fn new_with_tag(space: MemorySpace, range: PageRange, typ: VmaType, tag_str: &str) -> Self {
         let mut tag: [u8; TAG_SIZE] = [b'-'; TAG_SIZE];
         let tag_bytes = tag_str.as_bytes();
-        let len = if tag_bytes.len() > TAG_SIZE {
-            TAG_SIZE
-        } else {
-            tag_bytes.len()
-        };
+        let len = if tag_bytes.len() > TAG_SIZE { TAG_SIZE } else { tag_bytes.len() };
 
         if len > 0 {
             let mut i = 0;
@@ -80,21 +52,12 @@ impl VirtualMemoryArea {
                 i += 1;
             }
         }
-        Self {
-            space,
-            range,
-            typ,
-            tag,
-        }
+        Self { space, range, typ, tag }
     }
 
-    /// Alternatively, create a new VirtualMemoryArea using the thread id `tid` as tag
-    pub const fn new_with_id(
-        space: MemorySpace,
-        range: PageRange,
-        typ: VmaType,
-        tid: usize,
-    ) -> Self {
+    /// Create a new VirtualMemoryArea with `space`, `range`, `typ`, and `tid`. \
+    /// The thread id `tid` is used to create a tag of the form "tid----".
+    pub const fn new_with_id(space: MemorySpace, range: PageRange, typ: VmaType, tid: usize) -> Self {
         let mut tag: [u8; TAG_SIZE] = [b'-'; TAG_SIZE]; // Default to dashes ('------')
         let mut num = tid;
         let mut i = TAG_SIZE;
@@ -105,38 +68,7 @@ impl VirtualMemoryArea {
             num /= 10;
         }
 
-        Self {
-            space,
-            range,
-            typ,
-            tag,
-        }
-    }
-
-    /// Create a new VirtualMemoryArea from a virtual `start` address and `size` with `typ`
-    pub fn from_address(start: VirtAddr, size: usize, space: MemorySpace, typ: VmaType) -> Self {
-        let start_page = Page::from_start_address(start)
-            .expect("VirtualMemoryArea: Address is not page aligned");
-
-        // Calculate the number of pages needed
-        let mut count_pages = (size / PAGE_SIZE) as u64;
-        if size % PAGE_SIZE != 0 {
-            count_pages += 1;
-        }
-
-        // Init PageRange
-        let range = PageRange {
-            start: start_page,
-            end: start_page + count_pages, // PageRange end is exclusive
-        };
-
-        let tag: [u8; TAG_SIZE] = [b'-'; TAG_SIZE];
-        Self {
-            space,
-            range,
-            typ,
-            tag,
-        }
+        Self { space, range, typ, tag }
     }
 
     pub fn start(&self) -> VirtAddr {
@@ -171,6 +103,11 @@ impl VirtualMemoryArea {
         }
         flags
     }
+
+    /// Helper function to check if two virtual address spaces are equivalent.
+    pub fn is_equivalent_to(&self, other: &Self) -> bool {
+        self.start() == other.start() && self.end() == other.end() && self.typ == other.typ && self.space == other.space && self.tag == other.tag
+    }
 }
 
 impl fmt::Debug for VirtualMemoryArea {
@@ -180,13 +117,12 @@ impl fmt::Debug for VirtualMemoryArea {
 
         write!(
             f,
-            "   VMA: Space: {:?}, Type: {:?}, [0x{:x}; 0x{:x}], #pages: {}, tag: {:?}",
+            "VMA: Space: {:?}, Type: {:?}, [0x{:x}; 0x{:x}], #pages: {}, tag: {:?}",
             self.space,
             self.typ,
             self.range.start.start_address().as_u64(),
             self.range.end.start_address().as_u64(),
-            (self.range.end.start_address().as_u64() - self.range.start.start_address().as_u64())
-                / PAGE_SIZE as u64,
+            (self.range.end.start_address().as_u64() - self.range.start.start_address().as_u64()) / PAGE_SIZE as u64,
             tag_str
         )
     }
