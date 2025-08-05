@@ -18,31 +18,20 @@ SECTIONS {
     . = 25M;
 
     ___KERNEL_DATA_START__ = .;
-    .boot : ALIGN (4K) {
-        ___BOOT_START__ = .;
-        *(.multiboot2_header*)
-        ___BOOT_END__ = .;
-    } AT> high
+    .boot : { *(.multiboot2_header) } AT> high
     
-    .text : ALIGN (4K) { 
-        ___TEXT_START__ = .;
-        *(.text*)
-        ___TEXT_END__ = .;
-    } AT> high
+    . = ALIGN (4K);
+    .text : { *(.text*) } AT> high
     
-    ___BSS_START__ = .;
+    . = 29M;
     .bss : ALIGN (4K) {
-        ___BSS_START_INNER__ = .;
+        ___BSS_START__ = .;
         *(".bss*")
-        ___BSS_END_INNER__ = .;
+        ___BSS_END__ = .;
     } AT> high
-    ___BSS_END__ = .;
     
-    .data : ALIGN (4K) {
-        ___DATA_START__ = .;
-        *(.data*)
-        ___DATA_END__ = .;
-    } AT> high
+    . = 31M;
+    .data : { *(.data*) } AT> high
     ___KERNEL_DATA_END__ = .;
     
     /* The visible_from_usermode section needs to be mapped from its lower
@@ -50,11 +39,7 @@ SECTIONS {
     make it visible in the userspace in a different entry of the top level
     page table */
     
-    .visible_from_usermode 0x8000000000 : ALIGN (4K) {
-        ___VISIBLE_FROM_USERMODE_START_INNER__ = .;
-        *(.visible_from_usermode*)
-        ___VISIBLE_FROM_USERMODE_END_INNER__ = .;
-    } AT> high
+    .visible_from_usermode 0x8000000000 : ALIGN (4K) { *(.visible_from_usermode*) } AT> high
     
     /* Setting . = ALIGN (4K); before the .visible_from_usermode section
     will be ignored, therefore we need to set ALIGN (4K) as part of the
