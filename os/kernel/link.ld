@@ -18,51 +18,46 @@ SECTIONS {
     . = 25M;
 
     ___KERNEL_DATA_START__ = .;
-    .boot : ALIGN (4096) {
-        . = ALIGN (4096);
+    .boot : ALIGN (4K) {
         ___BOOT_START__ = .;
-        KEEP(*(.multiboot2_header*))
+        *(.multiboot2_header*)
         ___BOOT_END__ = .;
     } AT> high
     
-    .text : ALIGN (4096) {
-        . = ALIGN (4096);
+    .text : ALIGN (4K) { 
         ___TEXT_START__ = .;
-        KEEP(*(.text*))
+        *(.text*)
         ___TEXT_END__ = .;
     } AT> high
     
-    .bss : ALIGN (4096) {
-        . = ALIGN (4096);
-        ___BSS_START__ = .;
-        KEEP(*(".bss"*))
-        ___BSS_END__ = .;
+    ___BSS_START__ = .;
+    .bss : ALIGN (4K) {
+        ___BSS_START_INNER__ = .;
+        *(".bss*")
+        ___BSS_END_INNER__ = .;
     } AT> high
+    ___BSS_END__ = .;
     
-    .data : ALIGN (4096) {
-        . = ALIGN (4096);
+    .data : ALIGN (4K) {
         ___DATA_START__ = .;
-        KEEP(*(.data*))
+        *(.data*)
         ___DATA_END__ = .;
     } AT> high
     ___KERNEL_DATA_END__ = .;
-    
-    . = ALIGN (4096);
     
     /* The visible_from_usermode section needs to be mapped from its lower
     region in the kernel region into a higher region starting at 512GiB to
     make it visible in the userspace in a different entry of the top level
     page table */
     
-    .visible_from_usermode 0x8000000000 : ALIGN (4096) {
-        . = ALIGN (4096);
+    .visible_from_usermode 0x8000000000 : ALIGN (4K) {
         ___VISIBLE_FROM_USERMODE_START_INNER__ = .;
-        KEEP(*(.visible_from_usermode*))
+        *(.visible_from_usermode*)
         ___VISIBLE_FROM_USERMODE_END_INNER__ = .;
     } AT> high
     
-    /* Setting . = ALIGN (4096); before the .visible_from_usermode section
-    will be ignored, therefore we need to set ALIGN (4096) as part of the
+    /* Setting . = ALIGN (4K); before the .visible_from_usermode section
+    will be ignored, therefore we need to set ALIGN (4K) as part of the
     section, and compute ___VISIBLE_FROM_USERMODE_START__ manually */
     ___VISIBLE_FROM_USERMODE_START__  = LOADADDR(.visible_from_usermode);
     
