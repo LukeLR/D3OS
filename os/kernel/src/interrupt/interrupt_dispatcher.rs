@@ -9,6 +9,8 @@ use spin::Mutex;
 use x86_64::registers::control::Cr2;
 use x86_64::set_general_handler;
 use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::structures::idt::Entry;
+use x86_64::structures::idt::InterruptDescriptorTable;
 use x86_64::structures::gdt::SegmentSelector;
 use x86_64::PrivilegeLevel;
 use x86_64;
@@ -151,15 +153,70 @@ pub struct InterruptDispatcher {
 unsafe impl Send for InterruptDispatcher {}
 unsafe impl Sync for InterruptDispatcher {}
 
+macro_rules! set_handler {
+    ($idt: expr, $handler: ident, $idx: ident) => {
+        extern "x86-interrupt" fn handler(frame: InterruptStackFrame) {
+            $handler(frame, $idx.into(), None);
+        }
+        $idt[$idx].set_handler_fn(handler);
+    }
+}
+
+fn get_exception_entry(idt: &mut InterruptDescriptorTable, i: usize) -> &mut Entry<extern "x86-interrupt" fn(InterruptStackFrame, u64) -> ()> {
+    match i {
+        10 => &mut idt.invalid_tss,
+        11 => &mut idt.segment_not_present,
+        12 => &mut idt.stack_segment_fault,
+        13 => &mut idt.general_protection_fault,
+        17 => &mut idt.alignment_check,
+        21 => &mut idt.cp_protection_exception,
+        29 => &mut idt.vmm_communication_exception,
+        30 => &mut idt.security_exception,
+        _ => panic!("internal error, get_exception_entry is not able to fetch id: {}", i),
+    }
+}
+
+macro_rules! set_handler_with_error_code {
+    ($entry: expr, $handler: ident, $idx: ident) => {
+        let index: u8 = $idx;
+        extern "x86-interrupt" fn handler(
+            frame: InterruptStackFrame,
+            error_code: u64,
+        ) {
+            $handler(frame, index.into(), Some(error_code));
+        }
+        $entry.set_handler_fn(handler);
+    }
+}
+
 pub fn setup_idt() {
     info!("Initializing IDT");
 
     let mut idt = idt().lock();
+    
+    for i in 0..255 {
+        match i {
+            i @ 15 | i @ 31 | i @ 22..=27 => { /* reserved, ignore */ },
+            8 => {
+                set_handler_with_error_code!(idt.double_fault, handle_exception, i);
+            },
+            i @ 10..=12 | i @ 17 | i @ 21 | i @ 29 | i @ 30 => {
+                set_handler_with_error_code!(get_exception_entry(&mut idt, i), handle_exception, i);
+            },
+            13 => {
+                set_handler_with_error_code!(get_exception_entry(&mut idt, i), handle_protection_fault, i);
+            },
+            14 => {
+                set_handler_with_error_code!(idt.page_fault, handle_page_fault, i);
+            },
+            18 => { /* diverging exception, ignore */ },
+            _ => {
+                set_handler!(idt, handle_interrupt, i);
+            },
+        }
+    }
 
-    set_general_handler!(&mut idt, handle_exception, 0..31);
-    set_general_handler!(&mut idt, handle_interrupt, 32..255);
-    set_general_handler!(&mut idt, handle_page_fault, 14);
-    set_general_handler!(&mut idt, handle_protection_fault, 13);
+    debug!("Interrupt descriptor table: {idt:?}");
 
     unsafe {
         // We need to obtain a static reference to the IDT for the following operation.
