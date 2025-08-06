@@ -160,6 +160,8 @@ pub fn setup_idt() {
     set_general_handler!(&mut idt, handle_interrupt, 32..255);
     set_general_handler!(&mut idt, handle_page_fault, 14);
     set_general_handler!(&mut idt, handle_protection_fault, 13);
+    
+    debug!("Interrupt descriptor table: {idt:?}");
 
     unsafe {
         // We need to obtain a static reference to the IDT for the following operation.
