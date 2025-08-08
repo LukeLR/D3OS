@@ -130,6 +130,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
 
     let kernel_process = process_manager().write().create_kernel_process(kernel_image_region, heap_region);
     kernel_process.dump();
+    kernel_process.kernelmode_address_space.load_address_space_kernel();
 
     // Initialize serial port and enable serial logging
     init_serial_port();
