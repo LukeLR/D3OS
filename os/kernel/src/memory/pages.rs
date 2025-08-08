@@ -201,14 +201,18 @@ impl Paging {
         for (index, entry) in table.iter().enumerate() {
             entry_address = base_address + (index << (12 + (level - 1) * 9));
             
+            // Check whether the entry is unused
             if !entry.is_unused() {
                 if level > 1 {
+                    // If we are not yet at the bottom level, calculate the address of the next page table and descend one level
                     let next_level = unsafe { (entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
                     Paging::dump_table(next_level, entry_address, level - 1, area);
                 } else {
+                    // Otherwise, process this entry with its type and flags
                     area.check_and_set(PageTableAreaType::Offset(entry_address as u64 - entry.addr().as_u64()), entry_address, entry.flags());
                 }
             } else {
+                // If the entry is unused, process this entry as an empty PageTableArea
                 area.check_and_set(PageTableAreaType::Empty, entry_address, entry.flags());
             }
         }
@@ -545,6 +549,7 @@ impl PageTableArea {
         PageTableArea { area_type, start_address, flags}
     }
     
+    /// Output the current area if any, and unset afterwards
     pub fn output_and_unset(&mut self, current_address: usize) {
         if let Some(value) = &self.area_type {
             info!("   {:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?} with flags {:?}",
@@ -559,12 +564,14 @@ impl PageTableArea {
         }
     }
     
+    /// Set the PageTableArea to the given properties
     pub fn set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags) {
         self.area_type = Some(current_area_type);
         self.start_address = current_address;
         self.flags = current_flags;
     }
     
+    /// Check the PageTableArea against the given properties, and output + update it on changes.
     pub fn check_and_set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags) {
         if let Some(value) = &self.area_type {
             if *value != current_area_type || self.flags != current_flags {
