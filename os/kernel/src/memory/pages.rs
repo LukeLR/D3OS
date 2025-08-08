@@ -188,9 +188,9 @@ impl Paging {
         // TODO: A read lock should be enough, maybe we can do without unsafe?
         let root_table_guard = self.root_table.write();
         let root_table = unsafe { root_table_guard.as_mut().unwrap() };
-        let mut area: PageTableArea = PageTableArea::new(None, 0);
+        let mut area: PageTableArea = PageTableArea::new(None, 0, PageTableFlags::empty());
         
-        info!("{memory_space:?} Page tables of process [{pid}]");
+        info!("{memory_space:?} Page tables of process [{pid}] at {root_table:p}");
         
         Paging::dump_table(root_table, 0, 4, &mut area);
     }
@@ -206,17 +206,17 @@ impl Paging {
                     let next_level = unsafe { (entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
                     Paging::dump_table(next_level, entry_address, level - 1, area);
                 } else {
-                    area.check_and_set(PageTableAreaType::Offset(entry_address as u64 - entry.addr().as_u64()), entry_address);
+                    area.check_and_set(PageTableAreaType::Offset(entry_address as u64 - entry.addr().as_u64()), entry_address, entry.flags());
                 }
             } else {
-                area.check_and_set(PageTableAreaType::Empty, entry_address);
+                area.check_and_set(PageTableAreaType::Empty, entry_address, entry.flags());
             }
         }
         
         // If we are at the end of the top level page directory, we need to print the last detected area
         if level == 4 {
             let end_address = entry_address + 1 << (12 + level * 9);
-            area.check(end_address);
+            area.output_and_unset(end_address);
         }
     }
 
@@ -535,40 +535,45 @@ enum PageTableAreaType {
 /// Struct to store the type and the start of an area of continuous page table entries of the same type
 struct PageTableArea {
     area_type: Option<PageTableAreaType>,
-    start_address: usize
+    start_address: usize,
+    flags: PageTableFlags,
 }
 
 /// Functions to actually dump the page table by printing the size and start and end addresses of continous page table areas whenever the area type changes (e.g. an identity mapping ends and the following page table entries are empty)
 impl PageTableArea {
-    pub fn new(area_type: Option<PageTableAreaType>, start_address: usize) -> Self {
-        PageTableArea { area_type, start_address }
+    pub fn new(area_type: Option<PageTableAreaType>, start_address: usize, flags: PageTableFlags) -> Self {
+        PageTableArea { area_type, start_address, flags}
     }
     
-    pub fn check(&mut self, current_address: usize) {
+    pub fn output_and_unset(&mut self, current_address: usize) {
         if let Some(value) = &self.area_type {
-            info!("   {:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?}",
+            info!("   {:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?} with flags {:?}",
                     value,
                     self.start_address,
                     current_address - 1,
                     PageTableEntryAddress::new(self.start_address, 1),
-                    PageTableEntryAddress::new(current_address - 1, 1)
+                    PageTableEntryAddress::new(current_address - 1, 1),
+                    self.flags,
             );
             self.area_type = None
         }
     }
     
-    pub fn check_and_set(&mut self, current_area_type: PageTableAreaType, current_address: usize) {
+    pub fn set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags) {
+        self.area_type = Some(current_area_type);
+        self.start_address = current_address;
+        self.flags = current_flags;
+    }
+    
+    pub fn check_and_set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags) {
         if let Some(value) = &self.area_type {
-            if *value != current_area_type {
-                // We have a different area type now, so print the old one and store a new start address
-                self.check(current_address);
+            if *value != current_area_type || self.flags != current_flags {
+                self.output_and_unset(current_address);
                 
-                self.area_type = Some(current_area_type);
-                self.start_address = current_address;
+                self.set(current_area_type, current_address, current_flags);
             }
         } else {
-            self.area_type = Some(current_area_type);
-            self.start_address = current_address;
+            self.set(current_area_type, current_address, current_flags);
         }
     }
 }
