@@ -198,11 +198,13 @@ impl VirtualAddressSpace {
         Arc::clone(&self.virtual_memory_areas)
     }
 
-	#[unsafe(link_section = ".visible_from_usermode")]
+    /// Load the address space of this VMM, required to be in usermode for address space switching on interrupts
+    #[unsafe(link_section = ".visible_from_usermode")]
     pub fn load_address_space(&self) {
         self.page_tables.load();
     }
     
+    /// Same as `load_address_space`, but not in the .visible_from_usermode-section, as the section needs to be loaded first as well, TODO find a better solution without duplicate code
     pub fn load_address_space_kernel(&self) {
         self.page_tables.load_kernel();
     }

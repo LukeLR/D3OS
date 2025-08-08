@@ -84,12 +84,13 @@ impl Paging {
         address_space
     }
 
-    /// Load cr3 register with the root page table address of `self`
+    /// Load cr3 register with the root page table address of `self`, needs to be within the .visible_from_usemrode section to be available for address space switching on interrupts
     #[unsafe(link_section = ".visible_from_usermode")]
     pub(super) fn load(&self) {
         unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
     }
     
+    /// Same as `load`, but not within the .visible_from_usermode-section, as this section needs to be loaded as well
     pub(super) fn load_kernel(&self) {
         unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
     }
