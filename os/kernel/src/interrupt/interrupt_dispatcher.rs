@@ -180,11 +180,13 @@ macro_rules! execute_in_switched_address_space {
             unsafe {
                 scheduler().current_thread().enable_kernel_address_space(true);
             }
+            // We are in kernel mode now and are able to execute prints without syscall
             debug!("Switched address space!");
             $code
             debug!("Restoring address space!");
             unsafe {
-                scheduler().current_thread().enable_kernel_address_space(false);
+                let thread = scheduler().current_thread();
+                thread.enable_kernel_address_space(false);
             }
         } else {
             $code
