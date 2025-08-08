@@ -25,6 +25,8 @@ use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::page::{PageRange,Page};
 use x86_64::structures::paging::Size4KiB;
 use log::{info, debug, trace};
+use alloc::format;
+use alloc::string::String;
 
 use crate::memory::{MemorySpace, PAGE_SIZE, frames};
 
@@ -210,18 +212,18 @@ impl Paging {
                     Paging::dump_table(next_level, entry_address, level - 1, area);
                 } else {
                     // Otherwise, process this entry with its type and flags
-                    area.check_and_set(PageTableAreaType::Offset(entry_address as u64 - entry.addr().as_u64()), entry_address, entry.flags());
+                    area.check_and_set(PageTableAreaType::Offset(entry_address as u64 - entry.addr().as_u64()), entry_address, entry.flags(), true);
                 }
             } else {
                 // If the entry is unused, process this entry as an empty PageTableArea
-                area.check_and_set(PageTableAreaType::Empty, entry_address, entry.flags());
+                area.check_and_set(PageTableAreaType::Empty, entry_address, entry.flags(), true);
             }
         }
         
         // If we are at the end of the top level page directory, we need to print the last detected area
         if level == 4 {
             let end_address = entry_address + 1 << (12 + level * 9);
-            area.output_and_unset(end_address);
+            area.output_and_unset(end_address, true);
         }
     }
 
@@ -551,15 +553,15 @@ impl PageTableArea {
     }
     
     /// Output the current area if any, and unset afterwards
-    pub fn output_and_unset(&mut self, current_address: usize) {
+    pub fn output_and_unset(&mut self, current_address: usize, ignore_flags: bool) {
         if let Some(value) = &self.area_type {
-            info!("   {:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?} with flags {:?}",
+            info!("   {:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?}, {}",
                     value,
                     self.start_address,
                     current_address - 1,
                     PageTableEntryAddress::new(self.start_address, 1),
                     PageTableEntryAddress::new(current_address - 1, 1),
-                    self.flags,
+                    if ignore_flags {String::from("ignoring flags")} else {format!("{:?}", self.flags)}
             );
             self.area_type = None
         }
@@ -573,10 +575,10 @@ impl PageTableArea {
     }
     
     /// Check the PageTableArea against the given properties, and output + update it on changes.
-    pub fn check_and_set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags) {
+    pub fn check_and_set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags, ignore_flags: bool) {
         if let Some(value) = &self.area_type {
-            if *value != current_area_type || self.flags != current_flags {
-                self.output_and_unset(current_address);
+            if *value != current_area_type || (!ignore_flags && self.flags != current_flags) {
+                self.output_and_unset(current_address, ignore_flags);
                 
                 self.set(current_area_type, current_address, current_flags);
             }
