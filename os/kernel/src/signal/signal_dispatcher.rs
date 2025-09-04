@@ -21,7 +21,7 @@ unsafe impl Send for SignalDispatcher {}
 unsafe impl Sync for SignalDispatcher {}
 
 pub fn handle_signal() {
-	println!("Handling signal...");
+    println!("Handling signal...");
 }
 
 impl SignalDispatcher {
@@ -41,29 +41,29 @@ impl SignalDispatcher {
         }
     }
 
-	pub fn dispatch(&self, signal: SignalVector, frame: &mut InterruptStackFrame) -> Result<(), ()> {
-		//println!("Dispatching signal");
-		let handle_signal;
-		match self.get(signal) {
-			Some(address) => handle_signal = address,
-			None => return Err(()),
-		}
-		
-		unsafe {
-			frame.as_mut().update(|frame| {
-				let stack_pointer: *mut u64 = frame.stack_pointer.as_mut_ptr();
-				
-				stack_pointer.write(frame.instruction_pointer.as_u64());
-				frame.stack_pointer -= 8;
-				frame.instruction_pointer = VirtAddr::new(handle_signal as u64);
-			});
-		}
-		//println!("Updated rip, frame at {:p}: {:?}", &frame, frame);
-		scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
-		// When signals aren't handled immediately, we need to switch threads after setting the pending signal
-		//scheduler().switch_thread_from_interrupt();
-		return Ok(());
-	}
+    pub fn dispatch(&self, signal: SignalVector, frame: &mut InterruptStackFrame) -> Result<(), ()> {
+        //println!("Dispatching signal");
+        let handle_signal;
+        match self.get(signal) {
+            Some(address) => handle_signal = address,
+            None => return Err(()),
+        }
+        
+        unsafe {
+            frame.as_mut().update(|frame| {
+                let stack_pointer: *mut u64 = frame.stack_pointer.as_mut_ptr();
+                
+                stack_pointer.write(frame.instruction_pointer.as_u64());
+                frame.stack_pointer -= 8;
+                frame.instruction_pointer = VirtAddr::new(handle_signal as u64);
+            });
+        }
+        //println!("Updated rip, frame at {:p}: {:?}", &frame, frame);
+        scheduler().current_thread().set_signal_pending(SignalVector::SIGSEGV);
+        // When signals aren't handled immediately, we need to switch threads after setting the pending signal
+        //scheduler().switch_thread_from_interrupt();
+        return Ok(());
+    }
     
     pub fn get(&self, vector: SignalVector) -> Option<u64> {
         match self.int_vectors.get(vector as usize) {
