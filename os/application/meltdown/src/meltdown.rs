@@ -469,6 +469,7 @@ pub fn main() {
 		mem = Vec::from_raw_parts(ptr as *mut MemoryPage, ARRAY_SIZE, ARRAY_SIZE);
 	}
 	
+	// Initialise the array with values holding the array index and verify that memory was assigned correctly
 	for i in 0..ARRAY_SIZE {
 		let cur_ptr = &mem[i] as *const MemoryPage;
 		// Construct the correct value: 16 bytes each containing the value of i
