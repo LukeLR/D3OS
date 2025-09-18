@@ -1,3 +1,3 @@
 [submodule "os/library/x86_64"]
 	path = os/library/x86_64
-	url = git@git.hhu.de:luros101/x86_64.git
+	url = ../x86_64.git
