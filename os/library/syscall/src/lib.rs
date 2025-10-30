@@ -19,7 +19,7 @@ use return_vals::{SyscallResult, convert_ret_code_to_syscall_result};
 pub enum SystemCall {
     TerminalRead = 0,
     TerminalWrite,
-    MapUserHeap,
+    MapMemory,
     ProcessExecuteBinary,
     ProcessId,
     ProcessExit,
@@ -42,6 +42,8 @@ pub enum SystemCall {
     Readdir,
     Cwd,
     Cd,
+    SignalHandlerRegister,
+    MeltdownCopyToKernelMemory,
     // no syscall, just marking last number, see NUM_SYSCALLS
     // insert any new system calls before this marker
     LastEntryMarker,
@@ -70,6 +72,11 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
     let a3 = *args.get(3).unwrap_or(&0usize);
     let a4 = *args.get(4).unwrap_or(&0usize);
     let a5 = *args.get(5).unwrap_or(&0usize);
+    
+    match &call {
+        SystemCall::TerminalWrite => try_read(a0 as *const u8, a1),
+        _ => {},
+    }
 
     unsafe {
         asm!(
@@ -86,5 +93,21 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
             clobber_abi("system"));
     }
 
-    convert_ret_code_to_syscall_result(ret_code.try_into().unwrap())
+    convert_ret_code_to_syscall_result(ret_code)
+}
+
+/* SECURITY: This can be skipped by using the syscall instruction directly
+ *           instead of using this library function. Proper permission
+ *           checking needs to be moved to kernel space instead.
+ */
+fn try_read(address: *const u8, len: usize) {
+    for i in 0..len {
+        unsafe {
+            asm!(
+                "mov {tmp}, [{x}]",
+                x = in(reg) address.add(i),
+                tmp = out(reg) _,
+            );
+        }
+    }
 }
