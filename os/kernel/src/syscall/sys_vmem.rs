@@ -26,7 +26,7 @@ pub extern "sysv64" fn sys_map_memory(start: usize, size: usize) -> isize {
     let start_page = Page::containing_address(start_addr);
     let num_pages = size.div_ceil(PAGE_SIZE);
 
-    let vma = process.virtual_address_space.alloc_vma(
+    let vma = process.kernelmode_address_space.alloc_vma(
         Some(start_page),
         num_pages as u64,
         MemorySpace::User,

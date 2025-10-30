@@ -13,3 +13,6 @@ pub const MAX_USER_STACK_SIZE: usize = 0x40000000;  // 1 GiB
 pub const MAIN_USER_STACK_START: usize = USER_SPACE_ENV_START + 0x40000000;  // 1 GiB
 pub const KERNEL_STACK_PAGES: usize = 64;
 pub const STACK_ENTRY_SIZE: usize = 8;  
+
+// Map user-space visible kernel code to 512GiB so it will reside in a new entry on the top level page frame
+pub const VISIBLE_FROM_USERMODE_VIRT_START: usize = 0x8000000000; // Defined in link.ld

@@ -30,6 +30,7 @@ pub enum VmaType {
 pub const TAG_SIZE: usize = 16; // Define a constant for tag size in bytes
 
 #[derive(Copy, Clone, PartialEq)]
+#[repr(align(32))]
 pub struct VirtualMemoryArea {
     pub space: MemorySpace,
     pub range: PageRange,
@@ -93,7 +94,7 @@ impl VirtualMemoryArea {
     /// Helper function to check if flags are consistent with the vma
     pub fn check_and_enforce_consistency(&self, mut flags: PageTableFlags) -> PageTableFlags {
         match self.space {
-            MemorySpace::User => {
+            MemorySpace::User | MemorySpace::UserAccessible => {
                 flags |= PageTableFlags::USER_ACCESSIBLE;
             }
             MemorySpace::Kernel => {

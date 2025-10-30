@@ -1,18 +1,25 @@
 use crate::interrupt::interrupt_handler::InterruptHandler;
-use crate::memory::MemorySpace;
 use crate::memory::vma::VmaType;
 use crate::{apic, idt, interrupt_dispatcher, scheduler};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
-use log::info;
 use spin::Mutex;
 use x86_64::registers::control::Cr2;
 use x86_64::set_general_handler;
 use x86_64::structures::idt::InterruptStackFrame;
-use x86_64::structures::paging::page::PageRange;
+use x86_64::structures::gdt::SegmentSelector;
+use x86_64::PrivilegeLevel;
+use x86_64;
+use x86_64::VirtAddr;
+use crate::memory::PAGE_SIZE;
+use crate::signal::signal_dispatcher::handle_signal;
+use signal::signal_vector::SignalVector;
 use x86_64::structures::paging::{Page, PageTableFlags};
+use x86_64::structures::paging::page::PageRange;
+use crate::memory::MemorySpace;
+use log::{info, debug};
 
 #[repr(u8)]
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]
@@ -152,6 +159,9 @@ pub fn setup_idt() {
     set_general_handler!(&mut idt, handle_exception, 0..31);
     set_general_handler!(&mut idt, handle_interrupt, 32..255);
     set_general_handler!(&mut idt, handle_page_fault, 14);
+    set_general_handler!(&mut idt, handle_protection_fault, 13);
+    
+    debug!("Interrupt descriptor table: {idt:?}");
 
     unsafe {
         // We need to obtain a static reference to the IDT for the following operation.
@@ -162,61 +172,110 @@ pub fn setup_idt() {
     }
 }
 
-fn handle_exception(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
-    panic!(
-        "CPU Exception: [{} - {:?}]\nError code: [{:?}]\n{:?}",
-        index,
-        InterruptVector::try_from(index).unwrap(),
-        error,
-        frame
-    );
-}
+const kernel_segment: SegmentSelector = SegmentSelector::new(1, PrivilegeLevel::Ring0);
 
-fn handle_page_fault(frame: InterruptStackFrame, _index: u8, error: Option<u64>) {
-    let fault_addr = Cr2::read().expect("Invalid address in CR2 during page fault");
-    let thread = scheduler().current_thread();
-
-    // Was the page fault caused by a user thread?
-    if !thread.is_kernel_thread() {
-        let fault_page = Page::containing_address(fault_addr);
-
-        // Check if page fault occurred inside a user stack
-        if let Some(stack) = thread
-            .process()
-            .virtual_address_space
-            .is_address_within_vma(fault_addr.as_u64(), VmaType::UserStack)
-        {
-            thread.process().virtual_address_space.map_partial_vma(
-                &stack,
-                PageRange {
-                    start: fault_page,
-                    end: fault_page + 1,
-                },
-                MemorySpace::User,
-                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
-            );
-            return ;
-        }
-
-
-        // Check if page fault occurred inside a user heap
-        if let Some(heap) = thread.process().virtual_address_space.is_address_within_vma(fault_addr.as_u64(), VmaType::Heap) {
-            thread.process().virtual_address_space.map_partial_vma(
-                &heap,
-                PageRange { start: fault_page, end: fault_page + 1 },
-                MemorySpace::User,
-                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
-            );
-            return ;
+macro_rules! execute_in_switched_address_space {
+    ($code_segment: expr, $code: block) => {
+        if $code_segment != kernel_segment {
+            unsafe {
+                scheduler().current_thread().enable_kernel_address_space(true);
+            }
+            // We are in kernel mode now and are able to execute prints without syscall
+            debug!("Switched address space!");
+            $code
+            debug!("Restoring address space!");
+            unsafe {
+                let thread = scheduler().current_thread();
+                thread.enable_kernel_address_space(false);
+            }
+        } else {
+            $code
         }
     }
-
-    // Page fault not resolved, panic
-    panic!("Page Fault!\nError code: [{:?}]\nAddress: [0x{:0>16x}]\n{:?}", error, fault_addr, frame);
 }
 
-fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>) {
-    interrupt_dispatcher().dispatch(index);
+#[unsafe(link_section = ".visible_from_usermode")]
+pub fn execute_in_switched_address_space_test(code_segment: SegmentSelector) {
+    execute_in_switched_address_space!(code_segment, {
+        debug!("execute_in_switched_address_space_test works!");
+    });
+}
+
+#[unsafe(link_section = ".visible_from_usermode")]
+fn handle_page_fault(mut frame: InterruptStackFrame, _index: u8, error: Option<u64>) {
+    execute_in_switched_address_space!(frame.code_segment, {
+        let fault_addr = Cr2::read().expect("Invalid address in CR2 during page fault");
+        let thread = scheduler().current_thread();
+
+        // Was the page fault caused by a user thread?
+        if !thread.is_kernel_thread() {
+            let fault_page = Page::containing_address(fault_addr);
+
+            // Check if page fault occurred inside a user stack
+            if let Some(stack) = thread
+                .process()
+                .kernelmode_address_space
+                .is_address_within_vma(fault_addr.as_u64(), VmaType::UserStack)
+            {
+                thread.process().kernelmode_address_space.map_partial_vma(
+                    &stack,
+                    PageRange {
+                        start: fault_page,
+                        end: fault_page + 1,
+                    },
+                    MemorySpace::User,
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
+                );
+                return ;
+            }
+
+
+            // Check if page fault occurred inside a user heap
+            if let Some(heap) = thread.process().kernelmode_address_space.is_address_within_vma(fault_addr.as_u64(), VmaType::Heap) {
+                thread.process().kernelmode_address_space.map_partial_vma(
+                    &heap,
+                    PageRange { start: fault_page, end: fault_page + 1 },
+                    MemorySpace::User,
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE,
+                );
+                return ;
+            }
+        }
+        
+        if let Err(()) = thread.process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
+            // Page fault not resolved, panic
+            panic!("Page Fault!\nError code: [{:?}]\nAddress: [0x{:0>16x}]\n{:?}", error, fault_addr, frame);
+        }
+        //println!("Reached end of handle_page_fault for thread {}!", thread.id());
+    });
+}
+
+#[unsafe(link_section = ".visible_from_usermode")]
+fn handle_exception(frame: InterruptStackFrame, index: u8, error: Option<u64>) {
+    execute_in_switched_address_space!(frame.code_segment, {
+        panic!(
+                "CPU Exception: [{} - {:?}]\nError code: [{:?}]\n{:?}",
+                index,
+                InterruptVector::try_from(index).unwrap(),
+                error,
+                frame
+            );
+    });
+}
+
+#[unsafe(link_section = ".visible_from_usermode")]
+fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
+    execute_in_switched_address_space!(frame.code_segment, {
+        println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
+        scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame);
+    });
+}
+
+#[unsafe(link_section = ".visible_from_usermode")]
+fn handle_interrupt(frame: InterruptStackFrame, index: u8, _error: Option<u64>) {
+    execute_in_switched_address_space!(frame.code_segment, {
+        interrupt_dispatcher().dispatch(index);
+    });
 }
 
 impl InterruptDispatcher {

@@ -73,7 +73,11 @@ impl Scheduler {
     pub fn set_init(&self) {
         self.get_ready_state().initialized = true;
     }
-
+    
+    pub fn is_init(&self) -> bool {
+        self.get_ready_state().initialized
+    }
+    
     pub fn active_thread_ids(&self) -> Vec<usize> {
         let state = self.get_ready_state();
         let sleep_list = self.sleep_list.lock();
@@ -90,6 +94,11 @@ impl Scheduler {
     pub fn current_thread(&self) -> Arc<Thread> {
         let state = self.get_ready_state();
         Scheduler::current(&state)
+    }
+    
+    pub fn try_current_thread(&self) -> Option<Arc<Thread>> {
+        let state = self.get_ready_state();
+        Scheduler::try_current(&state)
     }
 
     /// Description: Return reference to thread for the given `thread_id`
@@ -340,6 +349,11 @@ impl Scheduler {
     /// Description: Return current running thread
     fn current(state: &ReadyState) -> Arc<Thread> {
         Arc::clone(state.current_thread.as_ref().expect("Trying to access current thread before initialization!"))
+    }
+    
+    fn try_current(state: &ReadyState) -> Option<Arc<Thread>> {
+        let current = state.current_thread.as_ref()?;
+        Some(Arc::clone(current))
     }
 
     fn check_sleep_list(state: &mut ReadyState, sleep_list: &mut Vec<(Arc<Thread>, usize)>) {

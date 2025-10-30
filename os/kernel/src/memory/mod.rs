@@ -13,7 +13,8 @@ pub mod acpi_handler;
 #[derive(Clone, Copy, Debug)]
 pub enum MemorySpace {
     Kernel,
-    User
+    User,
+    UserAccessible,
 }
 
 pub const PAGE_SIZE: usize = 0x1000;

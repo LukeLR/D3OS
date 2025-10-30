@@ -42,7 +42,9 @@ use crate::memory::PAGE_SIZE;
 use crate::process::process::Process;
 use crate::process::scheduler;
 use crate::syscall::syscall_dispatcher::CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX;
-use crate::{process_manager, scheduler, tss};
+use crate::signal::signal_dispatcher;
+use signal::signal_vector::SignalVector;
+use crate::{memory, process_manager, scheduler, tss};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::arch::naked_asm;
@@ -54,13 +56,21 @@ use spin::Mutex;
 use x86_64::PrivilegeLevel::Ring3;
 use x86_64::VirtAddr;
 use x86_64::structures::gdt::SegmentSelector;
-use x86_64::structures::paging::Page;
+use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::structures::paging::page::PageRange;
+use x86_64::structures::paging::{Page, PageTableFlags, Size4KiB};
 
 /// kernel & user stack of a thread
 struct Stacks {
     kernel_stack: Vec<u64, StackAllocator>,
     user_stack: Vec<u64, StackAllocator>,
     old_rsp0: VirtAddr, // used for thread switching; rsp3 is stored in TSS
+}
+
+/// Signal mask & pending signals of a thread
+struct Signals {
+    signal_mask: i32, // Which signals should be blocked
+    signal_pending: i32, // Which signals are pending
 }
 
 /// A thread is the unit of execution.
@@ -92,6 +102,7 @@ pub struct Thread {
     user_kickoff: VirtAddr,
     /// the actual entry point (eg. for user threads the single parameter to kickoff)
     entry: extern "sysv64" fn(),
+    signals: Mutex<Signals>,
 }
 
 impl Stacks {
@@ -100,6 +111,15 @@ impl Stacks {
             kernel_stack,
             user_stack,
             old_rsp0: VirtAddr::zero(),
+        }
+    }
+}
+
+impl Signals {
+    const fn new() -> Self {
+        Self {
+            signal_mask: 0,
+            signal_pending: 0
         }
     }
 }
@@ -128,6 +148,7 @@ impl Thread {
                 .expect("Trying to create a kernel thread before process initialization!"),
             user_kickoff: VirtAddr::zero(),
             entry,
+            signals: Mutex::new(Signals::new())
         };
 
         thread.prepare_kernel_stack();
@@ -180,7 +201,7 @@ impl Thread {
         //
         // Create user stack for the application
         //
-        let stack_vma = parent.virtual_address_space.user_alloc_map_partial(None, (MAX_USER_STACK_SIZE / PAGE_SIZE) as u64,  VmaType::UserStack, "usrstack", 1, true).expect("could not create user stack");
+        let stack_vma = parent.kernelmode_address_space.user_alloc_map_partial(None, (MAX_USER_STACK_SIZE / PAGE_SIZE) as u64,  VmaType::UserStack, "usrstack", 1, true).expect("could not create user stack");
 
         // Make a Vec for the user stack
         let user_stack: Vec<u64, StackAllocator> = stack::alloc_user_stack(pid, tid, stack_vma.start().as_u64() as usize, MAX_USER_STACK_SIZE);
@@ -192,6 +213,7 @@ impl Thread {
             process: parent,
             user_kickoff: kickoff_addr,
             entry,
+            signals: Mutex::new(Signals::new())
         };
 
         thread.prepare_kernel_stack();
@@ -239,10 +261,39 @@ impl Thread {
         let current_rsp0 = ptr::from_ref(&current.stacks.lock().old_rsp0) as *mut u64;
         let next_rsp0 = next.stacks.lock().old_rsp0.as_u64();
         let next_rsp0_end = next.kernel_stack_addr().as_u64();
-        let next_address_space = next.process.virtual_address_space.page_table_address().as_u64();
-
+        let next_address_space = next.process.kernelmode_address_space.page_table_address().as_u64();
+        
+        //scheduler::unlock_scheduler();
+        /*if next.has_pending_signal() {
+            //println!("{} -> {} has pending signal! Continuing. Ready threads: {:?}", current.id(), next.id(), scheduler().active_thread_ids());
+            println!("s");
+            //interrupt_stack_frame: *const InterruptStackFrame = next.stacks.lock().old_rsp0.as_ptr();
+            //println!("frame: {:?}", interrupt_stack_frame);
+            
+            let rsp0_pointer: *const u64 = next.stacks.lock().old_rsp0.as_ptr();
+            let ds = rsp0_pointer.read();
+            let user_rsp = rsp0_pointer.offset(-1).read();
+            let rflags = rsp0_pointer.offset(-2).read();
+            let cs = rsp0_pointer.offset(-3).read();
+            let rip = rsp0_pointer.offset(-4).read();
+            println!("next_rsp0: {:x}, ds: {:x}, user_rsp: {:x}, rflags: {:x}, cs: {:x}, rip: {:x}", next_rsp0, ds, user_rsp, rflags, cs, rip);
+        }*/
+        
+        //next.stacks.lock().user_stack.push(signal_dispatcher::handle_signal as u64);
+        
         unsafe {
             thread_switch(current_rsp0, next_rsp0, next_rsp0_end, next_address_space);
+        }
+    }
+    
+    #[unsafe(link_section = ".visible_from_usermode")]
+    pub unsafe fn enable_kernel_address_space(&self, kernel_space: bool){
+        if !kernel_space {
+            //info!("Loading user mode stack");
+            self.process.usermode_address_space.load_address_space();
+        } else {
+            //info!("Loading kernel mode stack");
+            self.process.kernelmode_address_space.load_address_space();
         }
     }
 
@@ -350,6 +401,42 @@ impl Thread {
         }
     }
 
+    /// Block/Unblock a signal in the signal mask
+    pub fn set_signal_blocked(&self, signal_vector: SignalVector, state: bool) {
+        assert!((signal_vector as u8) < signal::signal_vector::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
+        if state {
+            self.signals.lock().signal_mask |= 1 << signal_vector as u8;
+        } else {
+            self.signals.lock().signal_mask &= !1 << signal_vector as u8;
+        }
+    }
+    
+    /// Set pending signal
+    pub fn set_signal_pending(&self, signal_vector: SignalVector) {
+        assert!((signal_vector as u8) < signal::signal_vector::MAX_VECTORS as u8, "Invalid signal vector number: {signal_vector:?}");
+        self.signals.lock().signal_pending |= 1 << signal_vector as u8;
+    }
+    
+    /// Check if thread has a pending signal
+    pub fn has_pending_signal(&self) -> bool {
+        self.signals.lock().signal_pending > 0
+    }
+    
+    /// Get and clear next pending signal
+    pub fn get_pending_signal(&self) -> Option<SignalVector> {
+        // find next signal (least significant positive bit) using https://graphics.stanford.edu/%7Eseander/bithacks.html#ZerosOnRightModLookup
+        const Mod37BitPosition: [u8; 37] = [32, 0, 1, 26, 2, 23, 27, 0, 3, 16, 24, 30, 28, 11, 0, 13, 4, 7, 17, 0, 25, 22, 31, 15, 29, 10, 12, 6, 0, 21, 14, 9, 5, 20, 8, 19, 18];
+        let signal_pending = self.signals.lock().signal_pending; //TODO: Check if this lock() is always returned
+        let signal_number = Mod37BitPosition[((-signal_pending & signal_pending) % 37) as usize];
+
+        self.signals.lock().signal_pending &= !(1 << signal_number); // clear signal
+        
+        match SignalVector::try_from(signal_number) {
+            Ok(signal_vector) => Some(signal_vector),
+            Err(_) => None,
+        }
+    }
+
     /// Helper function to parse ELF binary and map it into the new process's address space
     /// Used only by `load_application()`
     fn parse_and_map_elf_bin(current_process: &Arc<Process>, new_process: &Arc<Process>, elf_buffer: &[u8], name: &str) -> u64 {
@@ -375,7 +462,7 @@ impl Thread {
                 // create mapping for 'total_page_count'
                 let virt_start = Page::from_start_address(VirtAddr::new(header.p_vaddr)).expect("ELF: Program section not page aligned");
                 let vma = new_process
-                    .virtual_address_space
+                    .kernelmode_address_space
                     .user_alloc_map_full(Some(virt_start), total_page_count as u64, VmaType::Code, name)
                     .expect("user_alloc_map_full failed");
 
@@ -383,9 +470,9 @@ impl Thread {
                 // as the target address space is not loaded we need to copy page by page by retrieving physical addresses manually from page tables of the target process
                 unsafe {
                     let src_ptr = elf_buffer.as_ptr().offset(header.p_offset as isize);
-                    current_process.virtual_address_space.copy_to_addr_space(
+                    current_process.kernelmode_address_space.copy_to_addr_space(
                         src_ptr,
-                        &new_process.virtual_address_space,
+                        &new_process.kernelmode_address_space,
                         vma.range.start,
                         header.p_filesz as u64,
                         true,
@@ -402,7 +489,7 @@ impl Thread {
                     for _i in 0..bss_page_count {
                         // get destination physical address
                         let dest_phys_addr = new_process
-                            .virtual_address_space
+                            .kernelmode_address_space
                             .get_phys(dest_page_start + dest_offset)
                             .expect("get_phys failed");
                         let dest = dest_phys_addr.as_u64() as *mut u8;
@@ -434,7 +521,7 @@ impl Thread {
 
         // create mapping for 'total_page_count'
         let _vma = new_process
-            .virtual_address_space
+            .kernelmode_address_space
             .user_alloc_map_full(Some(env_virt_start), env_page_count as u64, VmaType::Environment, "env")
             .expect("user_alloc_map_full failed");
 
@@ -442,7 +529,7 @@ impl Thread {
             panic!("Environment size exceeds one page, which is not supported yet");
         }
 
-        let env_frame = new_process.virtual_address_space.get_phys(env_virt_start.start_address().as_u64())
+        let env_frame = new_process.kernelmode_address_space.get_phys(env_virt_start.start_address().as_u64())
             .expect("get_phys failed for environment");
 
         // create argc and argv in the user space environment

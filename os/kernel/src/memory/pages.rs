@@ -25,6 +25,8 @@ use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::page::{PageRange,Page};
 use x86_64::structures::paging::Size4KiB;
 use log::{info, debug, trace};
+use alloc::format;
+use alloc::string::String;
 
 use crate::memory::{MemorySpace, PAGE_SIZE, frames};
 
@@ -60,7 +62,7 @@ impl Drop for Paging {
 impl Paging {
 
     /// Create a new root page table for address space `self` with the given `depth`
-    pub(super) fn new(depth: usize) -> Self {
+    pub fn new(depth: usize) -> Self {
         let table_addr = frames::alloc(1).start;
         let root_table = table_addr.start_address().as_u64() as *mut PageTable;
         unsafe { root_table.as_mut().unwrap().zero(); }
@@ -78,17 +80,40 @@ impl Paging {
             let other_root_table_guard = other.root_table.read();
             let other_root_table = unsafe { other_root_table_guard.as_ref().unwrap() };
 
-            Paging::copy_table(other_root_table, root_table, other.depth);
+            Paging::copy_table(other_root_table, root_table, other.depth, true);
         }
 
         address_space
     }
 
-    /// Load cr3 register with the root page table address of `self`
+    /// Load cr3 register with the root page table address of `self`, needs to be within the .visible_from_usemrode section to be available for address space switching on interrupts
+    #[unsafe(link_section = ".visible_from_usermode")]
     pub(super) fn load(&self) {
+        let address = self.page_table_address();
+        debug!("Setting CR3 to {address:p}");
+        unsafe { Cr3::write(PhysFrame::from_start_address(address).unwrap(), Cr3Flags::empty()) };
+    }
+    
+    /// Same as `load`, but not within the .visible_from_usermode-section, as this section needs to be loaded as well
+    pub(super) fn load_kernel(&self) {
         unsafe { Cr3::write(PhysFrame::from_start_address(self.page_table_address()).unwrap(), Cr3Flags::empty()) };
     }
-
+    
+    pub(super) fn is_loaded(&self) -> bool {
+        unsafe {
+            let (phys_frame, _) = Cr3::read();
+            PhysFrame::from_start_address(self.page_table_address()).unwrap() == phys_frame
+        }
+    }
+    
+    pub fn copy_from(&self, other: &Self, level: usize, overwrite: bool) {
+        Paging::copy_table(
+            unsafe { other.root_table.write().as_mut() }.unwrap(), // source
+            unsafe { self.root_table.write().as_mut()  }.unwrap(), // target
+            level,
+            overwrite
+        );
+    }
 
     /// Return physical address of root page table address (pml4) of `self`
     pub(super) fn page_table_address(&self) -> PhysAddr {
@@ -164,13 +189,13 @@ impl Paging {
         Paging::set_flags_in_table(root_table, pages, flags, depth);
     }
     
-    pub fn dump(&self) {
+    pub fn dump(&self, pid: usize, memory_space: MemorySpace) {
         // TODO: A read lock should be enough, maybe we can do without unsafe?
         let root_table_guard = self.root_table.write();
         let root_table = unsafe { root_table_guard.as_mut().unwrap() };
-        let mut area: PageTableArea = PageTableArea::new(None, 0);
+        let mut area: PageTableArea = PageTableArea::new(None, 0, PageTableFlags::empty());
         
-        debug!("Dumping page tables");
+        info!("{memory_space:?} Page tables of process [{pid}] at {root_table:p}");
         
         Paging::dump_table(root_table, 0, 4, &mut area);
     }
@@ -181,33 +206,41 @@ impl Paging {
         for (index, entry) in table.iter().enumerate() {
             entry_address = base_address + (index << (12 + (level - 1) * 9));
             
+            // Check whether the entry is unused
             if !entry.is_unused() {
                 if level > 1 {
+                    // If we are not yet at the bottom level, calculate the address of the next page table and descend one level
                     let next_level = unsafe { (entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
                     Paging::dump_table(next_level, entry_address, level - 1, area);
                 } else {
-                    area.check_and_set(PageTableAreaType::Offset(entry_address as u64 - entry.addr().as_u64()), entry_address);
+                    // Otherwise, process this entry with its type and flags
+                    area.check_and_set(PageTableAreaType::Offset(entry_address as u64 - entry.addr().as_u64()), entry_address, entry.flags(), true);
                 }
             } else {
-                area.check_and_set(PageTableAreaType::Empty, entry_address);
+                // If the entry is unused, process this entry as an empty PageTableArea
+                area.check_and_set(PageTableAreaType::Empty, entry_address, entry.flags(), true);
             }
         }
         
         // If we are at the end of the top level page directory, we need to print the last detected area
         if level == 4 {
             let end_address = entry_address + 1 << (12 + level * 9);
-            area.check(end_address);
+            area.output_and_unset(end_address, true);
         }
     }
 
 
     /// Internal recursive function to copy page tables from `source` to `target`
-    fn copy_table(source: &PageTable, target: &mut PageTable, level: usize) {
+    /// If `overwrite` is set, unused entries in the source table will overwrite any existing entries in the target table.
+    /// Without overwrite set, existing entries in the target table are ignored whenever entries in the source table are unused.
+    fn copy_table(source: &PageTable, target: &mut PageTable, level: usize, overwrite: bool) {
         if level > 1 { // On all levels larger than 1, we allocate new page frames
             for (index, target_entry) in target.iter_mut().enumerate() {
                 let source_entry = &source[index];
                 if source_entry.is_unused() { // Skip empty entries
-                    target_entry.set_unused();
+                    if overwrite {
+                        target_entry.set_unused();
+                    }
                     continue;
                 }
 
@@ -217,12 +250,14 @@ impl Paging {
 
                 let next_level_source = unsafe { (source_entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
                 let next_level_target = unsafe { (target_entry.addr().as_u64() as *mut PageTable).as_mut().unwrap() };
-                Paging::copy_table(next_level_source, next_level_target, level - 1);
+                Paging::copy_table(next_level_source, next_level_target, level - 1, overwrite);
             }
         } else { // Only on the last level, we create a 1:1 copy of the page table
             for (index, target_entry) in target.iter_mut().enumerate() {
                 let source_entry = &source[index];
-                target_entry.set_addr(source_entry.addr(), source_entry.flags());
+                if (overwrite || !source_entry.is_unused()) {
+                    target_entry.set_addr(source_entry.addr(), source_entry.flags());
+                }
             }
         }
     }
@@ -263,7 +298,7 @@ impl Paging {
         } else { // Reached level 1 page table
             total_allocated_pages += match space {
                 MemorySpace::Kernel => Paging::identity_map_kernel(table, pages, flags),
-                MemorySpace::User => {
+                MemorySpace::User | MemorySpace::UserAccessible => {
                     if frames.start == frames.end {
                         Paging::map_user(table, pages, flags)
                     } else {
@@ -509,40 +544,48 @@ enum PageTableAreaType {
 /// Struct to store the type and the start of an area of continuous page table entries of the same type
 struct PageTableArea {
     area_type: Option<PageTableAreaType>,
-    start_address: usize
+    start_address: usize,
+    flags: PageTableFlags,
 }
 
 /// Functions to actually dump the page table by printing the size and start and end addresses of continous page table areas whenever the area type changes (e.g. an identity mapping ends and the following page table entries are empty)
 impl PageTableArea {
-    pub fn new(area_type: Option<PageTableAreaType>, start_address: usize) -> Self {
-        PageTableArea { area_type, start_address }
+    pub fn new(area_type: Option<PageTableAreaType>, start_address: usize, flags: PageTableFlags) -> Self {
+        PageTableArea { area_type, start_address, flags}
     }
     
-    pub fn check(&mut self, current_address: usize) {
+    /// Output the current area if any, and unset afterwards
+    pub fn output_and_unset(&mut self, current_address: usize, ignore_flags: bool) {
         if let Some(value) = &self.area_type {
-            info!("{:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?}",
+            info!("   {:?} mapping for addresses 0x{:x} - 0x{:x}, {:?} - {:?}, {}",
                     value,
                     self.start_address,
                     current_address - 1,
                     PageTableEntryAddress::new(self.start_address, 1),
-                    PageTableEntryAddress::new(current_address - 1, 1)
+                    PageTableEntryAddress::new(current_address - 1, 1),
+                    if ignore_flags {String::from("ignoring flags")} else {format!("{:?}", self.flags)}
             );
             self.area_type = None
         }
     }
     
-    pub fn check_and_set(&mut self, current_area_type: PageTableAreaType, current_address: usize) {
+    /// Set the PageTableArea to the given properties
+    pub fn set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags) {
+        self.area_type = Some(current_area_type);
+        self.start_address = current_address;
+        self.flags = current_flags;
+    }
+    
+    /// Check the PageTableArea against the given properties, and output + update it on changes.
+    pub fn check_and_set(&mut self, current_area_type: PageTableAreaType, current_address: usize, current_flags: PageTableFlags, ignore_flags: bool) {
         if let Some(value) = &self.area_type {
-            if *value != current_area_type {
-                // We have a different area type now, so print the old one and store a new start address
-                self.check(current_address);
+            if *value != current_area_type || (!ignore_flags && self.flags != current_flags) {
+                self.output_and_unset(current_address, ignore_flags);
                 
-                self.area_type = Some(current_area_type);
-                self.start_address = current_address;
+                self.set(current_area_type, current_address, current_flags);
             }
         } else {
-            self.area_type = Some(current_area_type);
-            self.start_address = current_address;
+            self.set(current_area_type, current_address, current_flags);
         }
     }
 }

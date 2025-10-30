@@ -13,6 +13,7 @@ use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::Page;
 use x86_64::VirtAddr;
 
+use crate::memory::pages::Paging;
 use crate::memory::{vmm, MemorySpace};
 use crate::memory::vma::VmaType;
 use crate::process::process::Process;
@@ -33,9 +34,11 @@ impl ProcessManager {
 
     /// Create a new process
     pub fn create_process(&mut self) -> Arc<Process> {
+        let usermode_address_space = vmm::create_user_address_space();
         let kernel_process = self.kernel_process().expect("No kernel process found!");
-        let paging = vmm::clone_address_space(&(kernel_process.virtual_address_space));
-        let process = Arc::new(Process::new(paging));
+        let kernelmode_address_space = vmm::clone_address_space(&(kernel_process.kernelmode_address_space));
+
+        let process = Arc::new(Process::new(usermode_address_space, kernelmode_address_space));
         self.active_processes.push(Arc::clone(&process));
         process
     }
@@ -46,14 +49,15 @@ impl ProcessManager {
         if kernel_process.is_some() {
             panic!("Kernel process already exists!");
         }
-
-        let paging = vmm::create_kernel_address_space();
-        let kernel_process = Arc::new(Process::new(paging));
+        
+        let usermode_address_space = vmm::create_user_address_space();
+        let kernelmode_address_space = vmm::create_kernel_address_space();
+        let kernel_process = Arc::new(Process::new(usermode_address_space, kernelmode_address_space));
         self.active_processes.push(Arc::clone(&kernel_process));
 
         // TODO: adjust this when removing 1:1 mapping
         kernel_process
-            .virtual_address_space
+            .kernelmode_address_space
             .alloc_vma(
                 Some(Page::from_start_address(VirtAddr::new(heap_region.start.start_address().as_u64())).unwrap()),
                 heap_region.len(),
@@ -65,7 +69,7 @@ impl ProcessManager {
 
         // TODO: stack is part of BSS, which is part of code
         kernel_process
-            .virtual_address_space
+            .kernelmode_address_space
             .alloc_vma(
                 Some(Page::from_start_address(VirtAddr::new(kernel_image_region.start.start_address().as_u64())).unwrap()),
                 kernel_image_region.len(),
@@ -147,7 +151,7 @@ impl ProcessManager {
 
         for (i, process) in self.active_processes.iter().enumerate() {
             info!("Process #{}: PID={}", i, process.id());
-            process.virtual_address_space.dump(process.id());
+            process.dump();
         }
         info!("=============================");
     }

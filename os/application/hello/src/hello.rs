@@ -20,7 +20,6 @@ pub fn main() {
     for arg in args {
         println!("  {}", arg);
     }
-
     
     let v = thread::create(|| {
         println!("Hello from the second thread!");
@@ -31,5 +30,4 @@ pub fn main() {
     } else {
         println!("Failed to create second thread");
     }
-
 }

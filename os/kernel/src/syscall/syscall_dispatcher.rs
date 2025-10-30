@@ -21,6 +21,8 @@ use crate::syscall::sys_concurrent::{sys_process_execute_binary, sys_process_exi
     sys_thread_id, sys_thread_join, sys_thread_sleep, sys_thread_switch};
 use crate::syscall::sys_terminal::{sys_terminal_read, sys_terminal_write};
 use crate::syscall::sys_naming::*;
+use crate::syscall::sys_signal::sys_signal_handler_register;
+use crate::syscall::sys_meltdown::sys_meltdown_copy_to_kernel_memory;
 
 use crate::{core_local_storage, tss};
 use log::info;
@@ -111,7 +113,9 @@ impl SyscallTable {
                 sys_touch as *const _,
                 sys_readdir as *const _,
                 sys_cwd as *const _,
-                sys_cd as *const _,                
+                sys_cd as *const _,
+                sys_signal_handler_register as *const _,
+                sys_meltdown_copy_to_kernel_memory as *const _,
             ],
         }
     }

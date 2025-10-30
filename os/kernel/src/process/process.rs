@@ -13,6 +13,9 @@ use core::sync::atomic::Ordering::Relaxed;
 use crate::{ process_manager, scheduler};
 use crate::memory::pages::Paging;
 use crate::memory::vmm::VirtualAddressSpace;
+use crate::signal::signal_dispatcher::SignalDispatcher;
+use crate::memory::vma::VirtualMemoryArea;
+use crate::memory::MemorySpace;
 
 static PROCESS_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
@@ -23,13 +26,20 @@ fn next_process_id() -> usize {
 
 pub struct Process {
     pub id: usize,
-    pub virtual_address_space: VirtualAddressSpace,
+    pub usermode_address_space: VirtualAddressSpace,
+    pub kernelmode_address_space: VirtualAddressSpace,
+    pub signal_dispatcher: SignalDispatcher,
 }
 
 
 impl Process {
-    pub fn new(page_tables: Arc<Paging>) -> Self {
-        Self { id: next_process_id(), virtual_address_space: VirtualAddressSpace::new(page_tables) }
+    pub fn new(usermode_address_space: VirtualAddressSpace, kernelmode_address_space: VirtualAddressSpace) -> Self {
+        Self {
+            id: next_process_id(),
+            usermode_address_space,
+            kernelmode_address_space,
+            signal_dispatcher: SignalDispatcher::new(),
+        }
     }
 
     /// Return the id of the process
@@ -56,7 +66,8 @@ impl Process {
     }
 
     pub fn dump(&self) {
-        self.virtual_address_space.dump(self.id);
+        self.usermode_address_space.dump(self.id, MemorySpace::User);
+        self.kernelmode_address_space.dump(self.id, MemorySpace::Kernel);
     }
 
 }

@@ -61,6 +61,10 @@ use x86_64::{PhysAddr, VirtAddr};
 unsafe extern "C" {
     static ___KERNEL_DATA_START__: (); // start address of OS image
     static ___KERNEL_DATA_END__: (); // end address of OS image
+    static ___BSS_START__: (); // start address of BSS segment
+    static ___BSS_END__: (); // end address of BSS segment
+    static ___VISIBLE_FROM_USERMODE_START__: (); // Parts of kernel that need to be visible from usermode
+    static ___VISIBLE_FROM_USERMODE_END__: ();
 }
 
 const INIT_HEAP_PAGES: usize = 0x400; // number of heap pages for booting the OS
@@ -77,7 +81,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
 
     // Log messages and panics are now working, but cannot use format string until the heap is initialized later on
     info!("Welcome to D3OS early boot environment!");
-
+    
     // Get multiboot information
     if multiboot2_magic != multiboot2::MAGIC {
         panic!("Invalid Multiboot2 magic number!");
@@ -94,7 +98,11 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // The bootloader marks the kernel image region as available, so we need to reserve it manually
     let kernel_image_region = kernel_image_region();
     unsafe {
+        //info!("Reserving kernel image region");
+        //debug!("Additional print statement to fix boot");
         memory::frames::reserve(kernel_image_region);
+        //info!("Reserving visible from usermode kernel image region");
+        memory::frames::reserve(visible_from_usermode_region());
     }
 
     // and initialize kernel heap, after which formatted strings may be used in logs and panics.
@@ -103,15 +111,26 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     unsafe {
         allocator().init(&heap_region);
     }
-    
+
+    unsafe {
+        debug!("Labels from linker script:");
+        debug!("  ___KERNEL_DATA_START__: {:p}", &___KERNEL_DATA_START__);
+        debug!("  ___KERNEL_DATA_END__: {:p}", &___KERNEL_DATA_END__);
+        debug!("  ___BSS_START__: {:p}", &___BSS_START__);
+        debug!("  ___BSS_END__: {:p}", &___BSS_END__);
+        debug!("  ___VISIBLE_FROM_USERMODE_START__: {:p}", &___VISIBLE_FROM_USERMODE_START__);
+        debug!("  ___VISIBLE_FROM_USERMODE_END__: {:p}", &___VISIBLE_FROM_USERMODE_END__);
+    }
+
     // Initialize CPU information
     init_cpu_info();
 
     // Create kernel process (and initialize virtual memory management)
     info!("Create kernel process and initialize paging");
+
     let kernel_process = process_manager().write().create_kernel_process(kernel_image_region, heap_region);
-    kernel_process.virtual_address_space.page_tables().dump();
-    kernel_process.virtual_address_space.load_address_space();
+    kernel_process.dump();
+    kernel_process.kernelmode_address_space.load_address_space_kernel();
 
     // Initialize serial port and enable serial logging
     init_serial_port();
@@ -127,7 +146,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     let fb_start_phys_addr = fb_info.address();
     let fb_end_phys_addr = fb_start_phys_addr + (fb_info.height() * fb_info.pitch()) as u64;
 
-    kernel_process.virtual_address_space.kernel_map_devm_identity(
+    kernel_process.kernelmode_address_space.kernel_map_devm_identity(
         fb_start_phys_addr,
         fb_end_phys_addr,
         PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE,
@@ -188,6 +207,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     // Enable interrupts
     info!("Enabling interrupts");
     interrupts::enable();
+    info!("Interrupts enabled");
 
     // Initialize EFI runtime service (if available and not done already during memory initialization)
     if uefi::table::system_table_raw().is_none() {
@@ -376,12 +396,26 @@ fn init_gdt() {
 
 /// Return `PhysFrameRange` for memory occupied by the kernel image
 fn kernel_image_region() -> PhysFrameRange {
-    let start: PhysFrame;
-    let end: PhysFrame;
-
     unsafe {
-        start = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(&___KERNEL_DATA_START__) as u64)).expect("Kernel code is not page aligned");
-        end = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(&___KERNEL_DATA_END__) as u64).align_up(PAGE_SIZE as u64)).unwrap();
+		page_image_region(&___KERNEL_DATA_START__, &___KERNEL_DATA_END__)
+	}
+}
+
+/// Return `PhysFrameRange` for memory that contains kernel parts visible from userspace
+pub fn visible_from_usermode_region() -> PhysFrameRange {
+	unsafe {
+		page_image_region(&___VISIBLE_FROM_USERMODE_START__, &___VISIBLE_FROM_USERMODE_END__)
+	}
+}
+
+/// Return `PhysFrameRange` for a given start and end address
+fn page_image_region(start_address: &(), end_address: &()) -> PhysFrameRange {
+	let start: PhysFrame;
+    let end: PhysFrame;
+    
+	unsafe {
+        start = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(start_address) as u64)).expect("Kernel code is not page aligned");
+        end = PhysFrame::from_start_address(PhysAddr::new(ptr::from_ref(end_address) as u64).align_up(PAGE_SIZE as u64)).unwrap();
     }
 
     PhysFrameRange { start, end }

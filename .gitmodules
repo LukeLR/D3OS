@@ -1,0 +1,3 @@
+[submodule "os/library/x86_64"]
+	path = os/library/x86_64
+	url = ../x86_64.git

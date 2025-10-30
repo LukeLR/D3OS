@@ -951,7 +951,7 @@ impl IdeChannel {
             end: Page::from_start_address(VirtAddr::new(prd_frames.end.start_address().as_u64())).unwrap()
         };
         let kernel_process = process_manager().read().kernel_process().unwrap();
-        kernel_process.virtual_address_space.set_flags(prd_pages, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE);
+        kernel_process.kernelmode_address_space.set_flags(prd_pages, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE);
 
 
         // Allocate memory for the DMA transfer
@@ -963,7 +963,7 @@ impl IdeChannel {
             start: Page::from_start_address(VirtAddr::new(dma_frames.start.start_address().as_u64())).unwrap(),
             end: Page::from_start_address(VirtAddr::new(dma_frames.end.start_address().as_u64())).unwrap()
         };
-        kernel_process.virtual_address_space.set_flags(dma_pages, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE);
+        kernel_process.kernelmode_address_space.set_flags(dma_pages, PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE);
 
         
         // Copy data to the DMA buffer if we are writing

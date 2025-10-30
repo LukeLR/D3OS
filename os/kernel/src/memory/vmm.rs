@@ -57,17 +57,56 @@ use crate::memory::frames;
 use crate::memory::frames::phys_limit;
 use crate::memory::pages;
 use crate::memory::pages::Paging;
-use crate::memory::vma::{VirtualMemoryArea, VmaType};
 use crate::memory::{MemorySpace, PAGE_SIZE};
+use crate::process_manager;
+use crate::boot::visible_from_usermode_region;
+use crate::memory::vma::{VirtualMemoryArea, VmaType};
+use crate::consts::VISIBLE_FROM_USERMODE_VIRT_START;
 
 /// Clone address space. Used during process creation.
-pub fn clone_address_space(other: &VirtualAddressSpace) -> Arc<Paging> {
-    Arc::new(Paging::from_other(&other.page_tables()))
+pub fn clone_address_space(other: &VirtualAddressSpace) -> VirtualAddressSpace {
+    VirtualAddressSpace::clone(other)
+}
+
+/// Create user address space
+pub fn create_user_address_space() -> VirtualAddressSpace {
+    debug!("Creating new user address space");
+    let page_tables = Paging::new(4);
+    
+    let address_space = VirtualAddressSpace::new(Arc::new(page_tables));
+    let usermode_region = visible_from_usermode_region();
+    let num_pages = (usermode_region.end.start_address() -
+                    usermode_region.start.start_address()) /
+                    usermode_region.start.size();
+    
+    let start_addr = VirtAddr::new(VISIBLE_FROM_USERMODE_VIRT_START as u64);
+    let start_page = Page::from_start_address(start_addr).expect("Virtual start address for visible_from_userspace section not page aligned!");
+    
+    debug!("Alloc'ing pages from user-visible kernel code memory 0x{:x} - 0x{:x} ({} pages) at 0x{:x}",
+           usermode_region.start.start_address(),
+           usermode_region.end.start_address(),
+           num_pages,
+           start_page.start_address());
+    
+    let vma = address_space.alloc_vma(Some(start_page),
+                                      num_pages,
+                                      MemorySpace::UserAccessible,
+                                      VmaType::Code,
+                                      "krn_usr").expect("Couldn't allocate VirtualMemoryArea for visible_from_userspace section");
+    
+    debug!("Mapping user-visible kernel code into VMA");
+    
+    address_space.map_pfr_for_vma(&vma,
+                                  usermode_region,
+                                  PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE).expect("Couldn't map visible_from_userspace section into VMA!");
+    
+    debug!("Done creating user address space");
+    address_space
 }
 
 /// Create kernel address space. Used during process creation.
-pub fn create_kernel_address_space() -> Arc<Paging> {
-    let address_space = Paging::new(4);
+pub fn create_kernel_address_space() -> VirtualAddressSpace {
+    let address_space = create_user_address_space(); // Kernel address space should contain user address space as well
     // map all physical addresses 1:1
     let max_phys_addr = phys_limit().start_address();
     let range = PageRange {
@@ -75,8 +114,8 @@ pub fn create_kernel_address_space() -> Arc<Paging> {
         end: Page::containing_address(VirtAddr::new(max_phys_addr.as_u64())),
     };
 
-    address_space.map(range, MemorySpace::Kernel, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
-    Arc::new(address_space)
+    address_space.page_tables.map(range, MemorySpace::Kernel, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
+    address_space
 }
 
 /// Return the last useable virtual address in canonical form
@@ -117,9 +156,12 @@ pub fn pfr_from_pr_identity(pr: PageRange) -> PhysFrameRange {
     }
 }
 
+type VirtualMemoryAreas = Arc<RwLock<BTreeMap<VirtAddr, Arc<VirtualMemoryArea>>>>;
+
 /// All data related to a virtual address space of a process.
+#[derive(Clone)]
 pub struct VirtualAddressSpace {
-    virtual_memory_areas: RwLock<BTreeMap<VirtAddr, Arc<VirtualMemoryArea>>>, // sorted by start address of vma
+    virtual_memory_areas: VirtualMemoryAreas, // sorted by start address of vma
     page_tables: Arc<Paging>,                                                 // page tables of this address space
     first_usable_user_addr: VirtAddr,                                         // first usable user address (fixed constant)
     last_usable_user_addr: VirtAddr,                                          // last usable user address (fixed by cpu model)
@@ -128,23 +170,47 @@ pub struct VirtualAddressSpace {
 impl VirtualAddressSpace {
     /// Initialize a new virtual address space with the given `page_tables`.
     pub fn new(page_tables: Arc<Paging>) -> Self {
+        Self::new_with_vmas(page_tables, Arc::new(RwLock::new(BTreeMap::new())))
+    }
+
+    pub fn new_with_vmas(page_tables: Arc<Paging>, virtual_memory_areas: VirtualMemoryAreas) -> Self {
         let first_usable_user_addr = VirtAddr::new(crate::consts::USER_SPACE_START as u64);
         let last_usable_user_addr: VirtAddr = VirtAddr::new(last_usable_virtual_address());
-
+        info!(
+            "VirtualAddressSpace: first usable user address: 0x{:x}, last usable user address: 0x{:x}",
+            first_usable_user_addr.as_u64(),
+            last_usable_user_addr.as_u64()
+        );
+        
         Self {
             page_tables,
-            virtual_memory_areas: RwLock::new(BTreeMap::new()),
+            virtual_memory_areas,
             first_usable_user_addr,
             last_usable_user_addr,
         }
     }
 
+    pub fn page_tables(&self) -> Arc<Paging> {
+        Arc::clone(&self.page_tables)
+    }
+    
+    pub fn virtual_memory_areas(&self) -> VirtualMemoryAreas {
+        Arc::clone(&self.virtual_memory_areas)
+    }
+
+    /// Load the address space of this VMM, required to be in usermode for address space switching on interrupts
+    #[unsafe(link_section = ".visible_from_usermode")]
     pub fn load_address_space(&self) {
         self.page_tables.load();
     }
-
-    pub fn page_tables(&self) -> Arc<Paging> {
-        Arc::clone(&self.page_tables)
+    
+    /// Same as `load_address_space`, but not in the .visible_from_usermode-section, as the section needs to be loaded first as well, TODO find a better solution without duplicate code
+    pub fn load_address_space_kernel(&self) {
+        self.page_tables.load_kernel();
+    }
+    
+    pub fn address_space_loaded(&self) -> bool {
+        self.page_tables.is_loaded()
     }
 
     /// Tries to allocate a virtual memory region for `num_pages` pages for the given `space`, `typ`, and `tag` in the address space `self`. \
@@ -154,10 +220,20 @@ impl VirtualAddressSpace {
     pub fn alloc_vma(
         &self, start_page: Option<Page>, num_pages: u64, vma_space: MemorySpace, vma_type: VmaType, vma_tag: &str,
     ) -> Option<Arc<VirtualMemoryArea>> {
-        match start_page {
-            Some(start_page) => self.alloc_at(start_page, num_pages, vma_space, vma_type, vma_tag),
-            None => self.alloc(num_pages, vma_space, vma_type, vma_tag),
-        }
+        trace!("Called alloc_vma with start_page: {:?}, num_pages: {}, vma_space: {:?}, vma_type: {:?}, vma_tag: {}", start_page, num_pages, vma_space, vma_type, vma_tag);
+        
+        let result = match start_page {
+            Some(start_page) => {
+                trace!("alloc_vma has start_page, calling alloc_at!");
+                self.alloc_at(start_page, num_pages, vma_space, vma_type, vma_tag)
+            },
+            None => {
+                trace!("alloc_vma has no start_page, calling alloc_at!");
+                self.alloc(num_pages, vma_space, vma_type, vma_tag)
+            },
+        };
+        trace!("Alloc'd a VMA: {:?}", result);
+        result
     }
 
     /// Tries to allocate a frame range for the full `vma`. \
@@ -219,24 +295,42 @@ impl VirtualAddressSpace {
 
         let end_page = first_page + num_pages;
         let new_vma_end_addr = end_page.start_address(); // still safe, since end is exclusive
+        
+        trace!("alloc_at: Checking bounds");
 
-        // Bounds check against usable user address range
-        if vma_space == MemorySpace::User {
-            if new_vma_start_addr < self.first_usable_user_addr || new_vma_end_addr > self.last_usable_user_addr {
-                return None;
+        // Bounds check against usable address range
+        match vma_space {
+            MemorySpace::User => {
+                if new_vma_start_addr < self.first_usable_user_addr || new_vma_end_addr > self.last_usable_user_addr {
+                    warn!("Trying to alloc_at in user memory space with invalid bounds: 0x{:x} - 0x{:x}", new_vma_start_addr, new_vma_end_addr);
+                    return None;
+                }
             }
-        // Bounds check against usable kernel address range
-        } else if new_vma_end_addr > self.last_usable_user_addr {
-            return None;
+            MemorySpace::Kernel => {
+                if new_vma_end_addr > self.last_usable_user_addr {
+                    warn!("Trying to alloc_at in kernel memory space with invalid end address: 0x{:x}", new_vma_end_addr);
+                    return None;
+                }
+            }
+            MemorySpace::UserAccessible => {
+                if new_vma_start_addr.as_u64() < VISIBLE_FROM_USERMODE_VIRT_START as u64 || new_vma_end_addr > self.first_usable_user_addr {
+                    warn!("Trying to alloc_at in UserAccessible memory space with invalid bounds: 0x{:x} - 0x{:x}", new_vma_start_addr, new_vma_end_addr);
+                    return None;
+                }
+            }
         }
-
+        
+        trace!("alloc_at: Creating new VMA");
+        
         // Create new VMA
         let vma_range = PageRange {
             start: first_page,
             end: first_page + num_pages,
         };
         let new_vma = Arc::new(VirtualMemoryArea::new_with_tag(vma_space, vma_range, vma_type, vma_tag_str));
-
+        
+        trace!("alloc_at: Checking for overlap with existing VMAs");
+        
         // Check for overlap with previous VMA
         let mut vmas = self.virtual_memory_areas.write();
         if let Some((_, prev)) = vmas.range(..=new_vma_start_addr).next_back() {
@@ -245,10 +339,17 @@ impl VirtualAddressSpace {
                 return None;
             }
         }
+        
+        let vma_clone = Arc::clone(&new_vma);
+        trace!("alloc_at: Inserting VMA clone with address {:p}", vma_clone);
 
         // No overlap, add new VMA
-        vmas.insert(new_vma_start_addr, new_vma.clone());
-        Some(new_vma)
+        vmas.insert(new_vma_start_addr, vma_clone);
+        trace!("alloc_at: Created a new VMA object at {:p}: {:?}", &new_vma, new_vma);
+        let result = Some(new_vma);
+        trace!("alloc_at: Wrapped new VMA object into optional at {:p}", &result);
+        
+        result
     }
 
     /// Allocates a virtual memory region for `num_pages` pages for the given `space`, `typ` and `tag` in the address space `self`. \
@@ -295,9 +396,10 @@ impl VirtualAddressSpace {
             let candidate_page = Page::containing_address(current);
             return self.alloc_at(candidate_page, num_pages, vma_space, vma_type, vma_tag);
         }
-
-        // No space found
-        None
+        
+        warn!("No space found in alloc! num_pages: {}, vma_space: {:?}, vma_type: {:?}, vma_tag: {}",
+              num_pages, vma_space, vma_type, vma_tag);
+        None // No space found
     }
 
     /// Map the sub `page_range` of the given `vma` by allocating frames as needed.
@@ -326,12 +428,13 @@ impl VirtualAddressSpace {
     }
 
     /// Dump all virtual memory areas of this address space
-    pub fn dump(&self, pid: usize) {
-        info!("VMAs of process [{pid}]");
+    pub fn dump(&self, pid: usize, memory_space: MemorySpace) {
+        info!("{memory_space:?} VMAs of process [{pid}]");
         let areas = self.virtual_memory_areas.read();
         for area in areas.iter() {
             info!("{area:?}");
         }
+        self.page_tables().dump(pid, memory_space);
     }
 
     /// Helper function to align an address up to the next page boundary.
