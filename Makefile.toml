@@ -51,6 +51,78 @@ args = [
     "-audiodev", "id=audio0,driver=${QEMU_AUDIO_DEVICE}",
 ]
 
+[tasks.qemu_peer_1]
+command = "qemu-system-x86_64"
+dependencies = [ "image", "hdd", "ovmf" ]
+args = [
+    # Base machine configuration
+    "-machine", "q35,nvdimm=on,pcspk-audiodev=audio0",
+    "-m", "512M,slots=2,maxmem=1G",
+    "-cpu", "Haswell,fsgsbase",
+    "-bios", "RELEASEX64_OVMF.fd",
+    "-boot", "d",
+    "-vga", "std",
+    "-rtc", "base=localtime",
+    "-serial", "stdio",
+    "-snapshot",
+
+    # Hard disk drive configuration
+    "-device", "piix3-ide,id=ide",
+    "-device", "ahci,id=ahci",
+    "-drive", "driver=raw,if=none,id=boot,file.filename=d3os.img",
+    "-drive", "driver=raw,if=none,id=hdd,file.filename=hdd.img",
+    "-device", "ide-hd,bus=ahci.0,drive=boot",
+    "-device", "ide-hd,bus=ide.0,drive=hdd",
+
+    # NVDIMM configuration
+    "-device", "nvdimm,memdev=mem1,id=nv1,label-size=2M",
+    "-object", "memory-backend-file,id=mem1,share=on,mem-path=nvdimm0,size=16M",
+
+    # Network configuration
+    "-netdev", "vmnet-host,id=net0,start-address=10.0.0.1,end-address=10.0.0.254,subnet-mask=255.255.255.0,isolated=false",
+    "-device", "rtl8139,netdev=net0,mac=52:54:00:12:34:56",
+    "-object", "filter-dump,id=filter1,netdev=net0,file=rtl8139-1.dump",
+
+    # Audio
+    "-audiodev", "id=audio0,driver=${QEMU_AUDIO_DEVICE}",
+]
+
+[tasks.qemu_peer_2]
+command = "qemu-system-x86_64"
+dependencies = [ "image", "hdd", "ovmf" ]
+args = [
+    # Base machine configuration
+    "-machine", "q35,nvdimm=on,pcspk-audiodev=audio0",
+    "-m", "512M,slots=2,maxmem=1G",
+    "-cpu", "Haswell,fsgsbase",
+    "-bios", "RELEASEX64_OVMF.fd",
+    "-boot", "d",
+    "-vga", "std",
+    "-rtc", "base=localtime",
+    "-serial", "stdio",
+    "-snapshot",
+
+    # Hard disk drive configuration
+    "-device", "piix3-ide,id=ide",
+    "-device", "ahci,id=ahci",
+    "-drive", "driver=raw,if=none,id=boot,file.filename=d3os.img",
+    "-drive", "driver=raw,if=none,id=hdd,file.filename=hdd.img",
+    "-device", "ide-hd,bus=ahci.0,drive=boot",
+    "-device", "ide-hd,bus=ide.0,drive=hdd",
+
+    # NVDIMM configuration
+    "-device", "nvdimm,memdev=mem2,id=nv2,label-size=2M",
+    "-object", "memory-backend-file,id=mem2,share=on,mem-path=nvdimm1,size=16M",
+
+    # Network configuration
+    "-netdev", "vmnet-host,id=net0,start-address=10.0.0.1,end-address=10.0.0.254,subnet-mask=255.255.255.0,isolated=false",
+    "-device", "rtl8139,netdev=net0,mac=52:54:00:12:34:57",
+    "-object", "filter-dump,id=filter2,netdev=net0,file=rtl8139-2.dump",
+
+    # Audio
+    "-audiodev", "id=audio0,driver=${QEMU_AUDIO_DEVICE}",
+]
+
 [tasks.qemu-wsl]
 command = "qemu-system-x86_64.exe"
 dependencies = [ "image", "hdd", "ovmf" ]
@@ -135,7 +207,7 @@ args = [ "Ready to debug" ]
 dependencies = [ "image", "hdd", "ovmf" ]
 
 [tasks.gdb]
-command = "gdb" 
+command = "gdb"
 args = [ "-ex", "break start", "-ex", "target remote 127.0.0.1:1234", "-ex", "continue", "loader/kernel.elf" ]
 
 [tasks.ovmf]
