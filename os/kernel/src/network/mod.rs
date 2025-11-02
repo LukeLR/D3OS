@@ -337,6 +337,40 @@ pub fn receive_icmp(handle: SocketHandle, data: &mut [u8]) -> Result<(usize, IpA
     socket.recv_slice(data)
 }
 
+pub fn can_recv(handle: SocketHandle, protocol: SocketType) -> bool {
+    match protocol {
+        SocketType::Udp => {
+            get_socket_for_current_process!(socket, handle, udp::Socket);
+            socket.can_recv()
+        },
+        SocketType::Tcp => {
+            get_socket_for_current_process!(socket, handle, tcp::Socket);
+            socket.can_recv()
+        }
+        SocketType::Icmp => {
+            get_socket_for_current_process!(socket, handle, icmp::Socket);
+            socket.can_recv()
+        }
+    }
+}
+
+pub fn can_send(handle: SocketHandle, protocol: SocketType) -> bool {
+    match protocol {
+        SocketType::Udp => {
+            get_socket_for_current_process!(socket, handle, udp::Socket);
+            socket.can_send()
+        },
+        SocketType::Tcp => {
+            get_socket_for_current_process!(socket, handle, tcp::Socket);
+            socket.can_send()
+        }
+        SocketType::Icmp => {
+            get_socket_for_current_process!(socket, handle, icmp::Socket);
+            socket.can_send()
+        }
+    }
+}
+
 /// Try to poll all sockets.
 /// 
 /// This returns None, if it failed to get all needed locks.

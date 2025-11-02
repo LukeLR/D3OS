@@ -87,6 +87,36 @@ impl UdpSocket {
         };
         Ok((num_bytes, remote_addr))
     }
+
+    /// Check whether the receive buffer is not empty.
+    pub fn can_recv(&self) -> Result<bool, NetworkError> {
+        let protocol = 0;
+        let can_recv = syscall(SystemCall::SockCanReceive, &[
+            self.handle,
+            protocol,
+        ])
+            .map_err(|errno| match errno {
+                Errno::ENOTSUP => panic!("invalid protocol"),
+                errno => NetworkError::Unknown(errno)
+            })?;
+
+        Ok(can_recv == 1)
+    }
+
+    /// Check whether the transmit buffer is full.
+    pub fn can_send(&self) -> Result<bool, NetworkError> {
+        let protocol = 0;
+        let can_send = syscall(SystemCall::SockCanSend, &[
+            self.handle,
+            protocol,
+        ])
+            .map_err(|errno| match errno {
+                Errno::ENOTSUP => panic!("invalid protocol"),
+                errno => NetworkError::Unknown(errno)
+            })?;
+
+        Ok(can_send == 1)
+    }
 }
 
 impl Drop for UdpSocket {
@@ -226,6 +256,36 @@ impl TcpStream {
             })?;
 
         Ok(num_bytes)
+    }
+
+    /// Check whether the receive half of the full-duplex connection buffer is open, and the receive buffer is not empty.
+    pub fn can_recv(&self) -> Result<bool, NetworkError> {
+        let protocol = 1;
+        let can_recv = syscall(SystemCall::SockCanReceive, &[
+            self.handle,
+            protocol,
+        ])
+            .map_err(|errno| match errno {
+                Errno::ENOTSUP => panic!("invalid protocol"),
+                errno => NetworkError::Unknown(errno)
+            })?;
+
+        Ok(can_recv == 1)
+    }
+
+    /// Check whether the transmit half of the full-duplex connection is open, and the transmit buffer is not full.
+    pub fn can_send(&self) -> Result<bool, NetworkError> {
+        let protocol = 1;
+        let can_send = syscall(SystemCall::SockCanSend, &[
+            self.handle,
+            protocol,
+        ])
+            .map_err(|errno| match errno {
+                Errno::ENOTSUP => panic!("invalid protocol"),
+                errno => NetworkError::Unknown(errno)
+            })?;
+
+        Ok(can_send == 1)
     }
 }
 
