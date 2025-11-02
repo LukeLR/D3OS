@@ -871,6 +871,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "netperf"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "concurrent",
+ "network",
+ "runtime",
+ "terminal",
+ "time",
+]
+
+[[package]]
 name = "network"
 version = "0.1.0"
 dependencies = [

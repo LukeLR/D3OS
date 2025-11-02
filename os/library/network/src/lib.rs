@@ -287,6 +287,14 @@ impl TcpStream {
 
         Ok(can_send == 1)
     }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_address
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_address
+    }
 }
 
 impl Drop for TcpStream {
