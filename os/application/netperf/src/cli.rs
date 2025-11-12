@@ -12,6 +12,7 @@ pub struct Cli {
     pub protocol: Protocol,
     pub reverse: bool,
     pub interval_seconds: u32,
+    pub duration_seconds: u32,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
@@ -59,6 +60,7 @@ impl Cli {
         let mut protocol = Protocol::Tcp;
         let mut reverse = false;
         let mut interval_seconds: u32 = 1;
+        let mut duration_seconds: u32 = 10;
 
         loop {
             match args.peek().map(String::as_str) {
@@ -88,12 +90,21 @@ impl Cli {
                         }
                     }
                 }
+                Some("-t") => {
+                    args.next();
+                    match args.next().map(|arg| arg.parse::<u32>()) {
+                        Some(Ok(arg)) => duration_seconds = arg,
+                        _ => {
+                            return Err("Wrong usage of option -t");
+                        }
+                    }
+                }
                 Some(_) => return Err("Usage: netperf [-s|-c host] [options]"),
                 None => break,
             }
         }
 
-        if 10 < interval_seconds {
+        if duration_seconds < interval_seconds {
             return Err("The duration must be at least as long as the interval");
         }
 
@@ -104,6 +115,7 @@ impl Cli {
             protocol,
             reverse,
             interval_seconds,
+            duration_seconds,
         })
     }
 }

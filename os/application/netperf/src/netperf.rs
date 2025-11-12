@@ -11,7 +11,7 @@ use crate::cli::{Cli, Mode, Protocol};
 use crate::client::Client;
 use crate::protocol::{TCP_RECV_BUFFER_SIZE, TCP_SEND_MESSAGE_SIZE, UDP_RECV_BUFFER_SIZE, UDP_SEND_MESSAGE_SIZE};
 use crate::server::Server;
-use crate::stats::{StatsTracker};
+use crate::stats::Stats;
 use alloc::string::String;
 use alloc::vec;
 use core::fmt;
@@ -169,7 +169,7 @@ fn run_udp(role: Role, local_addr: SocketAddr, remote: Option<SocketAddr>, confi
 fn start_tcp_receiver(socket: TcpStream, config: Cli) -> (String, String) {
     let mut buf = vec![0; TCP_RECV_BUFFER_SIZE];
 
-    let mut tracker = StatsTracker::new(config.interval_seconds);
+    let mut tracker = Stats::tcp(config.interval_seconds, config.duration_seconds);
     println!("{}", tracker.get_header());
 
     while !tracker.has_total_time_elapsed() {
@@ -177,7 +177,7 @@ fn start_tcp_receiver(socket: TcpStream, config: Cli) -> (String, String) {
             match socket.read(&mut buf) {
                 Ok(len) => {
                     if len > 0 {
-                        tracker.track(len);
+                        tracker.track(len, &buf);
                     }
                 }
                 Err(err) => {
@@ -188,7 +188,7 @@ fn start_tcp_receiver(socket: TcpStream, config: Cli) -> (String, String) {
             }
         }
 
-        tracker.check_and_print_interval_report();
+        tracker.print_interval_info();
     }
 
     (tracker.get_header(), tracker.finalize_and_get_summary())
@@ -197,13 +197,13 @@ fn start_tcp_receiver(socket: TcpStream, config: Cli) -> (String, String) {
 fn start_tcp_sender(socket: TcpStream, config: Cli) -> (String, String) {
     let message = vec![0; TCP_SEND_MESSAGE_SIZE];
 
-    let mut tracker = StatsTracker::new(config.interval_seconds);
+    let mut tracker = Stats::tcp(config.interval_seconds, config.duration_seconds);
     println!("{}", tracker.get_header());
 
     while !tracker.has_total_time_elapsed() {
         if let Ok(true) = socket.can_send() {
             match socket.write(&message) {
-                Ok(len) => tracker.track(len),
+                Ok(len) => tracker.track(len, &[]),
                 Err(err) => {
                     if !handle_network_error(err, "send message") {
                         break;
@@ -212,7 +212,7 @@ fn start_tcp_sender(socket: TcpStream, config: Cli) -> (String, String) {
             };
         }
 
-        tracker.check_and_print_interval_report();
+        tracker.print_interval_info();
     }
 
     (tracker.get_header(), tracker.finalize_and_get_summary())
@@ -223,7 +223,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
     let mut message = vec![0; UDP_SEND_MESSAGE_SIZE];
     let mut seq_num: u64 = 0;
 
-    let mut tracker = StatsTracker::new(config.interval_seconds);
+    let mut tracker = Stats::udp(config.interval_seconds, config.duration_seconds, Role::Sender);
     println!("{}", tracker.get_header());
 
     while !tracker.has_total_time_elapsed() {
@@ -232,7 +232,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
 
             match socket.send_to(&message, remote_addr) {
                 Ok(len) => {
-                    tracker.track(len);
+                    tracker.track(len, &[]);
                     seq_num += 1;
                 }
                 Err(err) => {
@@ -243,7 +243,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
             };
         }
 
-        tracker.check_and_print_interval_report();
+        tracker.print_interval_info();
     }
 
     (tracker.get_header(), tracker.finalize_and_get_summary())
@@ -253,7 +253,7 @@ fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> (String, String) {
     let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
     let mut buf = vec![0; UDP_RECV_BUFFER_SIZE];
 
-    let mut tracker = StatsTracker::new(config.interval_seconds);
+    let mut tracker = Stats::udp(config.interval_seconds, config.duration_seconds, Role::Receiver);
     println!("{}", tracker.get_header());
 
     while !tracker.has_total_time_elapsed() {
@@ -261,7 +261,7 @@ fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> (String, String) {
             match socket.recv_from(&mut buf) {
                 Ok((len, _addr)) => {
                     if len > 0 {
-                        tracker.track(len);
+                        tracker.track(len, &buf);
                     }
                 }
                 Err(err) => {
@@ -272,7 +272,7 @@ fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> (String, String) {
             }
         }
 
-        tracker.check_and_print_interval_report();
+        tracker.print_interval_info();
     }
 
     (tracker.get_header(), tracker.finalize_and_get_summary())
