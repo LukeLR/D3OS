@@ -53,7 +53,7 @@ pub fn init() {
 
     if let Some(rtl8139) = RTL8139.get() {
         extern "sysv64" fn poll() {
-            loop { poll_sockets(); scheduler().sleep(50); }
+            loop { poll_sockets(); scheduler().sleep(7); }
         }
         scheduler().ready(Thread::new_kernel_thread(poll, "RTL8139"));
         

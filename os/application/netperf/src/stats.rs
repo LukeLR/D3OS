@@ -1,3 +1,4 @@
+use alloc::string::String;
 use chrono::TimeDelta;
 use terminal::println;
 #[allow(unused_imports)]
@@ -15,22 +16,21 @@ pub struct StatsTracker {
 }
 
 impl StatsTracker {
-    pub fn new(interval_seconds: i64) -> Self {
+    pub fn new(interval_seconds: u32) -> Self {
         let now = time::systime();
         Self {
             last_report_time: now,
             start_time: now,
             bytes_this_interval: 0,
-            report_interval: TimeDelta::seconds(interval_seconds),
+            report_interval: TimeDelta::seconds(interval_seconds as i64),
         }
     }
 
-    #[inline]
-    pub fn add_bytes(&mut self, bytes: usize) {
+    pub fn track(&mut self, bytes: usize) {
         self.bytes_this_interval += bytes as u64;
     }
 
-    pub fn check_and_print_report(&mut self) {
+    pub fn check_and_print_interval_report(&mut self) {
         let current_time = time::systime();
         let elapsed = current_time - self.last_report_time;
 
@@ -56,8 +56,16 @@ impl StatsTracker {
             self.bytes_this_interval = 0;
         }
     }
-}
 
-pub fn print_header() {
-    println!("[ ID] Interval           Transfer     Bitrate");
+    pub fn has_total_time_elapsed(&self) -> bool {
+        time::systime() - self.start_time >= TimeDelta::seconds(10)
+    }
+    
+    pub fn finalize_and_get_summary(&self) -> String {
+        String::from("to be implemented...")
+    }
+
+    pub fn get_header(&self) -> String {
+        String::from("[ ID] Interval           Transfer     Bitrate")
+    }
 }

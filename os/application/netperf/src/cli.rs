@@ -2,19 +2,25 @@ use alloc::string::String;
 use core::net::{IpAddr, Ipv4Addr};
 use network::resolve_hostname;
 use runtime::env;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct Cli {
     pub mode: Mode,
     pub host: IpAddr,
     pub port: u16,
     pub protocol: Protocol,
+    pub reverse: bool,
+    pub interval_seconds: u32,
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub enum Mode {
     Server,
     Client,
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub enum Protocol {
     Tcp,
     Udp,
@@ -51,6 +57,9 @@ impl Cli {
 
         let mut port = 2000;
         let mut protocol = Protocol::Tcp;
+        let mut reverse = false;
+        let mut interval_seconds: u32 = 1;
+
         loop {
             match args.peek().map(String::as_str) {
                 Some("-p") => {
@@ -66,11 +75,35 @@ impl Cli {
                     args.next();
                     protocol = Protocol::Udp;
                 }
+                Some("-r") => {
+                    args.next();
+                    reverse = true;
+                }
+                Some("-i") => {
+                    args.next();
+                    match args.next().map(|arg| arg.parse::<u32>()) {
+                        Some(Ok(arg)) => interval_seconds = arg,
+                        _ => {
+                            return Err("Wrong usage of option -i");
+                        }
+                    }
+                }
                 Some(_) => return Err("Usage: netperf [-s|-c host] [options]"),
                 None => break,
             }
         }
 
-        Ok(Cli { mode, host, port, protocol })
+        if 10 < interval_seconds {
+            return Err("The duration must be at least as long as the interval");
+        }
+
+        Ok(Cli {
+            mode,
+            host,
+            port,
+            protocol,
+            reverse,
+            interval_seconds,
+        })
     }
 }
