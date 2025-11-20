@@ -229,6 +229,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
     while !tracker.has_total_time_elapsed() {
         if let Ok(true) = socket.can_send() {
             message[..8].copy_from_slice(&seq_num.to_le_bytes());
+            message[8..16].copy_from_slice(&time::systime().as_seconds_f64().to_le_bytes());
 
             match socket.send_to(&message, remote_addr) {
                 Ok(len) => {

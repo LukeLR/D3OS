@@ -2,6 +2,7 @@ use crate::cli::Cli;
 use crate::protocol::{ControlMsg, recv_msg, send_msg};
 use alloc::string::String;
 use core::net::SocketAddr;
+use concurrent::thread::sleep;
 use network::{NetworkError, TcpListener, TcpStream};
 use syscall::return_vals::Errno;
 use terminal::println;
@@ -67,6 +68,7 @@ impl Drop for Server {
             if let Err(NetworkError::Unknown(Errno::EINVALH)) = self.control_channel.read(&mut []) {
                 break;
             }
+            sleep(100);
         }
     }
 }
