@@ -145,4 +145,18 @@ pub const APPLICATION_REGISTRY: &'static [Application] = &[
         single_value: &[],
         key_value_pair: &[],
     },
+    Application {
+        namespace: "netperf",
+        single_value: &[
+            "-s",
+            "-c",
+            "-u",
+            "-r",
+        ],
+        key_value_pair: &[
+            ("-p", &["2000"]),
+            ("-i", &["1"]),
+            ("-t", &["10"]),
+        ],
+    }
 ];
