@@ -1,6 +1,6 @@
 use crate::cli::Cli;
 use crate::protocol::{recv_msg, send_msg, ControlMsg};
-use alloc::string::String;
+use crate::Results;
 use core::net::SocketAddr;
 use network::{NetworkError, TcpStream};
 use terminal::println;
@@ -29,9 +29,9 @@ impl Client {
         }
     }
 
-    pub fn receive_server_results(&self) -> (String, String) {
+    pub fn receive_server_results(&self) -> Results {
         match recv_msg(&self.control_channel) {
-            ControlMsg::Results(header, summary) => (header, summary),
+            ControlMsg::Results(header, summary, json) => Results { header, summary, json },
             _ => panic!("expected results from server"),
         }
     }
@@ -46,7 +46,7 @@ impl Client {
     pub fn signal_ready(&self) {
         send_msg(&self.control_channel, &ControlMsg::Ready);
     }
-    
+
     pub fn get_local_addr(&self) -> SocketAddr {
         self.control_channel.local_addr()
     }

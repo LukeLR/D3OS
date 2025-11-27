@@ -63,6 +63,12 @@ impl Display for Role {
     }
 }
 
+struct Results {
+    header: String,
+    summary: String,
+    json: String,
+}
+
 fn start_server(config: Cli) {
     loop {
         // TODO: Handle errors
@@ -72,7 +78,7 @@ fn start_server(config: Cli) {
 
         let role = if client_config.reverse { Role::Sender } else { Role::Receiver };
 
-        let (header, summary) = match client_config.protocol {
+        let results = match client_config.protocol {
             Protocol::Tcp => {
                 let listener = TcpListener::bind(local_addr).expect("failed to bind tcp socket");
                 let socket = listener.accept().expect("failed to accept tcp connection");
@@ -101,9 +107,9 @@ fn start_server(config: Cli) {
 
         println!("- - - - - - - - - - - - - - - - - - - - - - -");
         println!("{}:", role);
-        println!("{}", summary);
+        println!("{}", results.summary);
 
-        server.send_results(header, summary);
+        server.send_results(results);
     }
 }
 
@@ -114,7 +120,7 @@ fn start_client(config: Cli) {
 
     let role = if config.reverse { Role::Receiver } else { Role::Sender };
 
-    let (_, local_summary) = match config.protocol {
+    let results = match config.protocol {
         Protocol::Tcp => {
             let socket = TcpStream::connect(SocketAddr::new(config.host, config.port)).expect("failed to connect to tcp socket");
 
@@ -143,30 +149,39 @@ fn start_client(config: Cli) {
 
     println!("- - - - - - - - - - - - - - - - - - - - - - - -");
     println!("{}:", role);
-    println!("{}", local_summary);
+    println!("{}", results.summary);
 
-    let (server_header, server_summary) = client.receive_server_results();
+    let server_results = client.receive_server_results();
 
     println!("{}:", role.inverse());
-    println!("{}", server_header);
-    println!("{}", server_summary);
+    println!("{}", server_results.header);
+    println!("{}", server_results.summary);
+
+    if config.json_output {
+        // TODO: Write json data into a file
+        // println!("{}:", role);
+        // println!("{}", results.json);
+        //
+        // println!("{}:", role.inverse());
+        // println!("{}", server_results.json);
+    }
 }
 
-fn run_tcp(role: Role, socket: TcpStream, config: Cli) -> (String, String) {
+fn run_tcp(role: Role, socket: TcpStream, config: Cli) -> Results {
     match role {
         Role::Sender => start_tcp_sender(socket, config),
         Role::Receiver => start_tcp_receiver(socket, config),
     }
 }
 
-fn run_udp(role: Role, local_addr: SocketAddr, remote: Option<SocketAddr>, config: Cli) -> (String, String) {
+fn run_udp(role: Role, local_addr: SocketAddr, remote: Option<SocketAddr>, config: Cli) -> Results {
     match role {
         Role::Sender => start_udp_sender(local_addr, remote.expect("remote addr required for UDP sender"), config),
         Role::Receiver => start_udp_receiver(local_addr, config),
     }
 }
 
-fn start_tcp_receiver(socket: TcpStream, config: Cli) -> (String, String) {
+fn start_tcp_receiver(socket: TcpStream, config: Cli) -> Results {
     let mut buf = vec![0; TCP_RECV_BUFFER_SIZE];
 
     let mut tracker = Stats::tcp(config.interval_seconds, config.duration_seconds);
@@ -191,10 +206,14 @@ fn start_tcp_receiver(socket: TcpStream, config: Cli) -> (String, String) {
         tracker.print_interval_info();
     }
 
-    (tracker.get_header(), tracker.finalize_and_get_summary())
+    Results {
+        header: tracker.get_header(),
+        summary: tracker.finalize_and_get_summary(),
+        json: tracker.stats_as_json(),
+    }
 }
 
-fn start_tcp_sender(socket: TcpStream, config: Cli) -> (String, String) {
+fn start_tcp_sender(socket: TcpStream, config: Cli) -> Results {
     let message = vec![0; TCP_SEND_MESSAGE_SIZE];
 
     let mut tracker = Stats::tcp(config.interval_seconds, config.duration_seconds);
@@ -215,10 +234,14 @@ fn start_tcp_sender(socket: TcpStream, config: Cli) -> (String, String) {
         tracker.print_interval_info();
     }
 
-    (tracker.get_header(), tracker.finalize_and_get_summary())
+    Results {
+        header: tracker.get_header(),
+        summary: tracker.finalize_and_get_summary(),
+        json: tracker.stats_as_json(),
+    }
 }
 
-fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli) -> (String, String) {
+fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli) -> Results {
     let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
     let mut message = vec![0; UDP_SEND_MESSAGE_SIZE];
     let mut seq_num: u64 = 0;
@@ -247,10 +270,14 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
         tracker.print_interval_info();
     }
 
-    (tracker.get_header(), tracker.finalize_and_get_summary())
+    Results {
+        header: tracker.get_header(),
+        summary: tracker.finalize_and_get_summary(),
+        json: tracker.stats_as_json(),
+    }
 }
 
-fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> (String, String) {
+fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
     let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
     let mut buf = vec![0; UDP_RECV_BUFFER_SIZE];
 
@@ -276,7 +303,11 @@ fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> (String, String) {
         tracker.print_interval_info();
     }
 
-    (tracker.get_header(), tracker.finalize_and_get_summary())
+    Results {
+        header: tracker.get_header(),
+        summary: tracker.finalize_and_get_summary(),
+        json: tracker.stats_as_json(),
+    }
 }
 
 fn handle_network_error(err: NetworkError, operation: &str) -> bool {

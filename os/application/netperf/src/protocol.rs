@@ -15,7 +15,7 @@ pub const UDP_SEND_MESSAGE_SIZE: usize = 1472;
 #[derive(Serialize, Deserialize)]
 pub enum ControlMsg {
     CliArgs(Cli),
-    Results(String, String),
+    Results(String, String, String),
     Ack,
     Ready,
 }

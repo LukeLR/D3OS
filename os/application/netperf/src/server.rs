@@ -1,8 +1,8 @@
+use crate::Results;
 use crate::cli::Cli;
 use crate::protocol::{ControlMsg, recv_msg, send_msg};
-use alloc::string::String;
-use core::net::SocketAddr;
 use concurrent::thread::sleep;
+use core::net::SocketAddr;
 use network::{NetworkError, TcpListener, TcpStream};
 use syscall::return_vals::Errno;
 use terminal::println;
@@ -41,8 +41,8 @@ impl Server {
         client_arguments
     }
 
-    pub fn send_results(&self, header: String, results: String) {
-        send_msg(&self.control_channel, &ControlMsg::Results(header, results));
+    pub fn send_results(&self, results: Results) {
+        send_msg(&self.control_channel, &ControlMsg::Results(results.header, results.summary, results.json));
     }
 
     pub fn signal_ready(&self) {

@@ -13,6 +13,7 @@ pub struct Cli {
     pub reverse: bool,
     pub interval_seconds: u32,
     pub duration_seconds: u32,
+    pub json_output: bool,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
@@ -61,6 +62,7 @@ impl Cli {
         let mut reverse = false;
         let mut interval_seconds: u32 = 1;
         let mut duration_seconds: u32 = 10;
+        let mut json_output = false;
 
         loop {
             match args.peek().map(String::as_str) {
@@ -99,6 +101,10 @@ impl Cli {
                         }
                     }
                 }
+                Some("--json") => {
+                    args.next();
+                    json_output = true;
+                }
                 Some(_) => return Err("Usage: netperf [-s|-c host] [options]"),
                 None => break,
             }
@@ -116,6 +122,7 @@ impl Cli {
             reverse,
             interval_seconds,
             duration_seconds,
+            json_output,
         })
     }
 }

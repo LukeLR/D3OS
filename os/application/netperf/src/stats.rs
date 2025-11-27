@@ -17,27 +17,79 @@ trait Column {
     fn header(&self) -> &'static str;
     fn width(&self) -> usize;
     fn on_track(&mut self, _bytes: usize, _buf: &[u8]) {}
-    fn interval_cell_and_reset(&mut self, elapsed_s: f64) -> String;
-    fn overall_cell(&self, total_duration_s: f64) -> String;
+    fn measure_interval(&self, elapsed_s: f64) -> Metric;
+    fn interval_reset(&mut self);
+    fn measure_overall(&self, total_duration_s: f64) -> Metric;
+}
+
+enum Metric {
+    Bytes { total: u64 },
+    Speed { mbps: f64 },
+    Loss { received: u64, expected: u64, loss_pct: f64 },
+    Jitter { ms: f64 },
+    Empty,
+}
+
+impl Metric {
+    fn to_console_string(&self) -> String {
+        match self {
+            Metric::Bytes { total } => {
+                let mb = (*total as f64) / BYTES_PER_MEGABYTE;
+                alloc::format!("{:>6.2} MBytes", mb)
+            }
+            Metric::Speed { mbps } => alloc::format!("{:>6.2} Mbits/sec", mbps),
+            Metric::Loss { received, expected, loss_pct } => {
+                let lost = expected.saturating_sub(*received);
+                alloc::format!("{}/{} ({:.2}%)", lost, expected, loss_pct)
+            }
+            Metric::Jitter { ms } => alloc::format!("{:.3} ms", ms),
+            Metric::Empty => String::from("-"),
+        }
+    }
+
+    fn to_json(&self) -> String {
+        match self {
+            Metric::Bytes { total } => alloc::format!("\"bytes\": {}", total),
+            Metric::Speed { mbps } => alloc::format!("\"bitrate_mbps\": {:.4}", mbps),
+            Metric::Loss { received, expected, loss_pct } => {
+                let lost = expected.saturating_sub(*received);
+                alloc::format!(
+                    "\"packets_received\": {}, \"packets_expected\": {}, \"packets_lost\": {}, \"loss_percent\": {:.4}",
+                    received,
+                    expected,
+                    lost,
+                    loss_pct
+                )
+            }
+            Metric::Jitter { ms } => alloc::format!("\"jitter_ms\": {:.4}", ms),
+            Metric::Empty => String::new(),
+        }
+    }
 }
 
 struct GenericStatsTracker {
     columns: Vec<Box<dyn Column>>,
+    interval_json_data: Vec<String>,
 }
 
 impl GenericStatsTracker {
     fn new(columns: Vec<Box<dyn Column>>) -> Self {
-        Self { columns }
+        Self {
+            columns,
+            interval_json_data: Vec::new(),
+        }
     }
 
     fn get_header(&self) -> String {
         // Interval header cell
         let mut line = alloc::format!("{:>width$}", "Interval", width = INTERVAL_COL_WIDTH);
+
         // Column headers
         for c in &self.columns {
             line.push_str(COL_SEP);
             line.push_str(&alloc::format!("{:>width$}", c.header(), width = c.width()));
         }
+
         line
     }
 
@@ -47,38 +99,60 @@ impl GenericStatsTracker {
         }
     }
 
-    fn build_interval_string(&mut self, info: IntervalInfo) -> Option<String> {
-        if info.elapsed_seconds <= 0.0 {
-            return None;
-        }
+    fn build_interval_string(&mut self, info: IntervalInfo) -> String {
         let prefix = alloc::format!("{:>4.2}-{:>4.2} sec", info.interval_start_s, info.interval_end_s);
         let mut line = alloc::format!("{:>width$}", prefix, width = INTERVAL_COL_WIDTH);
-        for c in &mut self.columns {
-            let cell = c.interval_cell_and_reset(info.elapsed_seconds);
+
+        let mut json_parts: Vec<String> = Vec::new();
+        json_parts.push(alloc::format!("\"start\": {:.2}", info.interval_start_s));
+        json_parts.push(alloc::format!("\"end\": {:.2}", info.interval_end_s));
+        json_parts.push(alloc::format!("\"seconds\": {:.2}", info.elapsed_seconds));
+
+        for column in &mut self.columns {
+            let measurement = column.measure_interval(info.elapsed_seconds);
+
+            json_parts.push(measurement.to_json());
+            column.interval_reset();
+
             line.push_str(COL_SEP);
-            line.push_str(&alloc::format!("{:>width$}", cell, width = c.width()));
+            line.push_str(&alloc::format!("{:>width$}", measurement.to_console_string(), width = column.width()));
         }
-        Some(line)
+
+        let json = alloc::format!("{{ {} }}", json_parts.join(", "));
+        self.interval_json_data.push(json);
+
+        line
     }
 
     fn print_interval_info(&mut self, info: IntervalInfo) {
-        if let Some(s) = self.build_interval_string(info) {
-            println!("{}", s);
-        }
+        println!("{}", self.build_interval_string(info));
     }
 
-    fn build_summary(&self, total_duration_s: f64) -> Option<String> {
-        if total_duration_s <= 0.0 {
-            return None;
-        }
+    fn build_summary(&self, total_duration_s: f64) -> String {
         let prefix = alloc::format!("{:>4.2}-{:>4.2} sec", 0.0, total_duration_s);
         let mut line = alloc::format!("{:>width$}", prefix, width = INTERVAL_COL_WIDTH);
         for c in &self.columns {
-            let cell = c.overall_cell(total_duration_s);
+            let measurement = c.measure_overall(total_duration_s);
+
             line.push_str(COL_SEP);
-            line.push_str(&alloc::format!("{:>width$}", cell, width = c.width()));
+            line.push_str(&alloc::format!("{:>width$}", measurement.to_console_string(), width = c.width()));
         }
-        Some(line)
+
+        line
+    }
+
+    fn get_json(&self, total_duration_s: f64) -> String {
+        let mut summary_parts: Vec<String> = Vec::new();
+        summary_parts.push(alloc::format!("\"duration_seconds\": {:.4}", total_duration_s));
+
+        for c in &self.columns {
+            summary_parts.push(c.measure_overall(total_duration_s).to_json());
+        }
+
+        let summary_obj = alloc::format!("{{ {} }}", summary_parts.join(", "));
+        let intervals_arr = alloc::format!("[ {} ]", self.interval_json_data.join(", "));
+
+        alloc::format!("{{ \"summary\": {}, \"intervals\": {} }}", summary_obj, intervals_arr)
     }
 }
 
@@ -122,6 +196,7 @@ impl ReportInterval {
             self.last_report_time = current_time;
             return Some(info);
         }
+
         None
     }
 
@@ -184,15 +259,16 @@ impl Column for TransferColumn {
         self.total_bytes += b;
     }
 
-    fn interval_cell_and_reset(&mut self, _elapsed_s: f64) -> String {
-        let mb = (self.bytes_interval as f64) / BYTES_PER_MEGABYTE;
-        self.bytes_interval = 0;
-        alloc::format!("{:>6.2} MBytes", mb)
+    fn measure_interval(&self, _elapsed_s: f64) -> Metric {
+        Metric::Bytes { total: self.bytes_interval }
     }
 
-    fn overall_cell(&self, _total_duration_s: f64) -> String {
-        let total_mb = (self.total_bytes as f64) / BYTES_PER_MEGABYTE;
-        alloc::format!("{:>6.2} MBytes", total_mb)
+    fn interval_reset(&mut self) {
+        self.bytes_interval = 0;
+    }
+
+    fn measure_overall(&self, _total_duration_s: f64) -> Metric {
+        Metric::Bytes { total: self.total_bytes }
     }
 }
 
@@ -224,20 +300,24 @@ impl Column for BitrateColumn {
         self.total_bytes += b;
     }
 
-    fn interval_cell_and_reset(&mut self, elapsed_s: f64) -> String {
+    fn measure_interval(&self, elapsed_s: f64) -> Metric {
         let bits = (self.bytes_interval as f64) * BITS_PER_BYTE;
         let mbps = if elapsed_s > 0.0 { bits / (elapsed_s * BITS_PER_MEGABIT) } else { 0.0 };
-        self.bytes_interval = 0;
-        alloc::format!("{:>6.2} Mbits/sec", mbps)
+        Metric::Speed { mbps }
     }
 
-    fn overall_cell(&self, total_duration_s: f64) -> String {
+    fn interval_reset(&mut self) {
+        self.bytes_interval = 0;
+    }
+
+    fn measure_overall(&self, total_duration_s: f64) -> Metric {
         if total_duration_s <= 0.0 {
-            return alloc::format!("{:>6.2} Mbits/sec", 0.0);
+            return Metric::Speed { mbps: 0.0 };
         }
+
         let bits = (self.total_bytes as f64) * BITS_PER_BYTE;
-        let avg = bits / (total_duration_s * BITS_PER_MEGABIT);
-        alloc::format!("{:>6.2} Mbits/sec", avg)
+        let mbps = bits / (total_duration_s * BITS_PER_MEGABIT);
+        Metric::Speed { mbps }
     }
 }
 
@@ -265,14 +345,26 @@ impl Column for UdpLossColumn {
         self.tracker.track(buf);
     }
 
-    fn interval_cell_and_reset(&mut self, _elapsed_s: f64) -> String {
-        let (_rcv, exp, lost, pct) = self.tracker.interval_loss();
-        alloc::format!("{}/{} ({:.2}%)", lost, exp, pct)
+    fn measure_interval(&self, _elapsed_s: f64) -> Metric {
+        let (rcv, exp, _lost, pct) = self.tracker.interval_loss();
+        Metric::Loss {
+            received: rcv,
+            expected: exp,
+            loss_pct: pct,
+        }
     }
 
-    fn overall_cell(&self, _total_duration_s: f64) -> String {
-        let (_rcv, exp, lost, pct) = self.tracker.overall_loss();
-        alloc::format!("{}/{} ({:.2}%)", lost, exp, pct)
+    fn interval_reset(&mut self) {
+        self.tracker.interval_reset();
+    }
+
+    fn measure_overall(&self, _total_duration_s: f64) -> Metric {
+        let (rcv, exp, _lost, pct) = self.tracker.overall_loss();
+        Metric::Loss {
+            received: rcv,
+            expected: exp,
+            loss_pct: pct,
+        }
     }
 }
 
@@ -319,16 +411,13 @@ impl UdpLossTracker {
         }
     }
 
-    fn interval_loss(&mut self) -> (u64, u64, u64, f64) {
+    fn interval_loss(&self) -> (u64, u64, u64, f64) {
         if !self.initialized {
             return (0, 0, 0, 0.0);
         }
 
         let delta_received = self.total_received - self.prev_total_received;
         let delta_expected = self.highest_seq - self.prev_highest_seq;
-
-        self.prev_total_received = self.total_received;
-        self.prev_highest_seq = self.highest_seq;
 
         (
             delta_received,
@@ -338,6 +427,11 @@ impl UdpLossTracker {
             delta_expected.saturating_sub(delta_received),
             Self::calc_loss(delta_expected, delta_received),
         )
+    }
+
+    fn interval_reset(&mut self) {
+        self.prev_total_received = self.total_received;
+        self.prev_highest_seq = self.highest_seq;
     }
 
     fn overall_loss(&self) -> (u64, u64, u64, f64) {
@@ -384,12 +478,20 @@ impl Column for UdpJitterColumn {
         self.tracker.track(buf, time::systime());
     }
 
-    fn interval_cell_and_reset(&mut self, _elapsed_s: f64) -> String {
-        alloc::format!("{:.3} ms", self.tracker.get_jitter_ms())
+    fn measure_interval(&self, _elapsed_s: f64) -> Metric {
+        Metric::Jitter {
+            ms: self.tracker.get_jitter_ms(),
+        }
     }
 
-    fn overall_cell(&self, _total_duration_s: f64) -> String {
-        alloc::format!("{:.3} ms", self.tracker.get_jitter_ms())
+    fn interval_reset(&mut self) {
+        self.tracker.interval_reset();
+    }
+
+    fn measure_overall(&self, _total_duration_s: f64) -> Metric {
+        Metric::Jitter {
+            ms: self.tracker.get_jitter_ms(),
+        }
     }
 }
 
@@ -433,6 +535,10 @@ impl UdpJitterTracker {
         }
 
         self.prev_transit = Some(transit_time);
+    }
+
+    fn interval_reset(&self) {
+        // do nothing
     }
 
     fn get_jitter_ms(&self) -> f64 {
@@ -490,7 +596,11 @@ impl Stats {
         if let Some(info) = self.interval.finalize_pending_interval() {
             self.core.print_interval_info(info);
         }
-        let total = self.interval.total_duration_s();
-        if let Some(s) = self.core.build_summary(total) { s } else { String::from("") }
+
+        self.core.build_summary(self.interval.total_duration_s())
+    }
+
+    pub fn stats_as_json(&self) -> String {
+        self.core.get_json(self.interval.total_duration_s())
     }
 }
