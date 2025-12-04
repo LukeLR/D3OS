@@ -8,6 +8,7 @@ use core::ops::Deref;
 use core::ptr;
 use log::{info, warn};
 use smoltcp::iface::{self, Interface, SocketHandle, SocketSet};
+use smoltcp::socket;
 use smoltcp::socket::{dhcpv4, dns, icmp, tcp, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{DnsQueryType, HardwareAddress, IpAddress, IpCidr, IpEndpoint};
@@ -246,10 +247,27 @@ pub fn open_icmp() -> SocketHandle {
 }
 
 pub fn close_socket(handle: SocketHandle) {
-    let sockets = SOCKETS.get().expect("Socket set not initialized!");
+    let mut sockets = SOCKETS.get().expect("Socket set not initialized!").write();
+
     check_ownership(handle);
+
+    let socket_ref = sockets.iter_mut()
+        .find(|(h, _)| *h == handle)
+        .map(|(_, s)| s);
+
+    if let Some(socket) = socket_ref {
+        match socket {
+            socket::Socket::Tcp(s) => s.close(),
+            socket::Socket::Udp(s) => s.close(),
+            _ => {},
+        }
+    } else {
+        warn!("Socket {} not found in SocketSet", handle);
+    }
+
+    // Remove permission for the process
+    // The socket remains in the set until poll_sockets() garbage collects it.
     SOCKET_PROCESS.write().remove(&handle).unwrap();
-    sockets.write().remove(handle);
 }
 
 pub fn bind_udp(handle: SocketHandle, addr: IpAddress, port: u16) -> Result<(), udp::BindError> {
@@ -429,6 +447,38 @@ fn poll_sockets() -> Option<()> {
             },
         }
     }
+
+    // Remove closed sockets
+    let mut sockets_to_remove = Vec::new();
+
+    let socket_map = SOCKET_PROCESS.read();
+    let dns_handle = DNS_SOCKET.get().expect("DNS socket does not exist yet");
+
+    for (handle, socket) in sockets.iter() {
+        // Skip system sockets
+        if handle == *dhcp_handle || handle == *dns_handle {
+            continue;
+        }
+
+        let is_closed = match socket {
+            // Only remove TCP sockets that have fully traversed the state machine to the CLOSED state.
+            socket::Socket::Tcp(s) => s.state() == tcp::State::Closed,
+            // UDP sockets are "closed" when they are not open.
+            socket::Socket::Udp(s) => !s.is_open(),
+            _ => false,
+        };
+
+        // only delete the socket if the process has released the handle
+        if is_closed && !socket_map.contains_key(&handle) {
+            sockets_to_remove.push(handle);
+        }
+    }
+
+    for handle in sockets_to_remove {
+        info!("Garbage collecting closed socket: {}", handle);
+        sockets.remove(handle);
+    }
+
     Some(())
 }
 

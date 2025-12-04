@@ -1,10 +1,8 @@
-use crate::Results;
 use crate::cli::Cli;
-use crate::protocol::{ControlMsg, recv_msg, send_msg};
-use concurrent::thread::sleep;
+use crate::protocol::{recv_msg, send_msg, ControlMsg};
+use crate::Results;
 use core::net::SocketAddr;
 use network::{NetworkError, TcpListener, TcpStream};
-use syscall::return_vals::Errno;
 use terminal::println;
 
 pub struct Server {
@@ -58,17 +56,5 @@ impl Server {
 
     pub fn get_client_address(&self) -> SocketAddr {
         self.control_channel.peer_addr()
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        loop {
-            // workaround: wait until the client closes the connection
-            if let Err(NetworkError::Unknown(Errno::EINVALH)) = self.control_channel.read(&mut []) {
-                break;
-            }
-            sleep(100);
-        }
     }
 }
