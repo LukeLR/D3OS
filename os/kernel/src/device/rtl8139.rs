@@ -26,8 +26,11 @@ use crate::interrupt::interrupt_dispatcher::InterruptVector;
 use crate::interrupt::interrupt_handler::InterruptHandler;
 use crate::memory::{vmm, PAGE_SIZE};
 
-// Ethernet frame size without FCS
+// Maximum Ethernet frame size without FCS
 const MAX_ETHERNET_FRAME_SIZE: usize = 1514;
+// Minimum Ethernet frame size without FCS
+const MIN_ETHERNET_FRAME_SIZE: usize = 60;
+
 const BUFFER_SIZE: usize = 8 * 1024 + 16 + MAX_ETHERNET_FRAME_SIZE + 4;
 const BUFFER_PAGES: usize = if BUFFER_SIZE % PAGE_SIZE == 0 { BUFFER_SIZE / PAGE_SIZE } else { BUFFER_SIZE / PAGE_SIZE + 1 };
 const RECV_QUEUE_CAP: usize = 16;
@@ -237,6 +240,9 @@ impl<'a> phy::TxToken for Rtl8139TxToken<'a> {
             panic!("Packet length may not exceed page size!");
         }
 
+        // Calculate the actual physical transmission size (min 60 bytes)
+        let tx_len = len.max(MIN_ETHERNET_FRAME_SIZE);
+
         // Allocate physical memory for the packet (DMA only works with physical addresses)
         let phys_buffer = unsafe { vmm::alloc_frames(1) };
         let pages = PageRange {
@@ -252,8 +258,13 @@ impl<'a> phy::TxToken for Rtl8139TxToken<'a> {
         self.device.send_queue.1.enqueue(phys_buffer).expect("Failed to enqueue physical buffer!");
 
         // Let smoltcp write the packet data to the buffer
-        let buffer = unsafe { slice::from_raw_parts_mut(phys_buffer.start.start_address().as_u64() as *mut u8, len) };
-        let result = f(buffer);
+        let buffer = unsafe { slice::from_raw_parts_mut(phys_buffer.start.start_address().as_u64() as *mut u8, tx_len) };
+        let result = f(&mut buffer[0..len]);
+
+        // Zero-pad the rest if necessary
+        if len < MIN_ETHERNET_FRAME_SIZE {
+            buffer[len..MIN_ETHERNET_FRAME_SIZE].fill(0);
+        }
 
         // Get current transmit descriptor
         let index = self.device.next_transmit_descriptor();
@@ -264,10 +275,10 @@ impl<'a> phy::TxToken for Rtl8139TxToken<'a> {
             scheduler().switch_thread_no_interrupt();
         }
 
-        // Send packet by writing physical address and packet length to transmit registers
+        // Send packet by writing physical address and (padded) packet length to transmit registers
         unsafe {
             descriptor.address.write(phys_buffer.start.start_address().as_u64() as u32);
-            descriptor.status.write(buffer.len() as u32);
+            descriptor.status.write(tx_len as u32);
         }
 
         result
