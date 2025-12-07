@@ -422,10 +422,11 @@ impl Rtl8139 {
             info!("Configuring receive buffer");
             rtl8139.registers.current_read_address.lock().write(0);
             rtl8139.registers.receive_buffer_start.write(rtl8139.recv_buffer.lock().data.as_ptr() as u32);
-            rtl8139.registers.receive_configuration.write((ReceiveFlag::ACCEPT_PHYSICAL_MATCH | ReceiveFlag::ACCEPT_BROADCAST | ReceiveFlag::WRAP | ReceiveFlag::LENGTH_8K).bits());
 
             info!("Enabling transmitter/receiver");
             rtl8139.registers.command.write((Command::ENABLE_TRANSMITTER | Command::ENABLE_RECEIVER).bits());
+
+            rtl8139.registers.receive_configuration.write((ReceiveFlag::ACCEPT_PHYSICAL_MATCH | ReceiveFlag::ACCEPT_BROADCAST | ReceiveFlag::WRAP | ReceiveFlag::LENGTH_8K).bits());
         }
 
         rtl8139
