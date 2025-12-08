@@ -22,32 +22,50 @@ pub enum ControlMsg {
 
 /// Blocks until the message is sent.
 pub fn send_msg(stream: &TcpStream, msg: &ControlMsg) {
-    loop {
-        if let Ok(true) = stream.can_send() {
-            let buf: Vec<u8> = to_allocvec(msg).expect("unable to allocate buffer");
+    let buf: Vec<u8> = to_allocvec(msg).expect("unable to allocate buffer");
+    let len_bytes = (buf.len() as u32).to_be_bytes();
 
-            let len_bytes = (buf.len() as u32).to_be_bytes();
-
-            stream.write(&len_bytes).expect("error sending control message");
-            stream.write(&buf).expect("error sending control message");
-            break;
-        }
-    }
+    write_all(stream, &len_bytes);
+    write_all(stream, &buf);
 }
 
 /// Blocks until a message is received.
 pub fn recv_msg(stream: &TcpStream) -> ControlMsg {
-    loop {
+    let mut len_buf = [0u8; 4];
+    read_exact(stream, &mut len_buf);
+
+    let len = u32::from_be_bytes(len_buf) as usize;
+
+    let mut payload_buf = vec![0u8; len];
+    read_exact(stream, &mut payload_buf);
+
+    from_bytes(&payload_buf).expect("error receiving control message")
+}
+
+/// Continues reading until the buffer is filled.
+fn read_exact(stream: &TcpStream, buf: &mut [u8]) {
+    let mut received = 0;
+
+    while received < buf.len() {
         if let Ok(true) = stream.can_recv() {
-            let mut len_buf = [0u8; 4];
+            match stream.read(&mut buf[received..]) {
+                Ok(n) => received += n,
+                Err(_) => panic!("stream read error"),
+            }
+        }
+    }
+}
 
-            stream.read(&mut len_buf).expect("error receiving control message");
+/// Continues writing until the buffer is completely sent.
+fn write_all(stream: &TcpStream, buf: &[u8]) {
+    let mut sent = 0;
 
-            let len = u32::from_be_bytes(len_buf) as usize;
-            let mut payload_buf = vec![0u8; len];
-
-            stream.read(&mut payload_buf).expect("error receiving control message");
-            return from_bytes(&payload_buf).expect("error receiving control message");
+    while sent < buf.len() {
+        if let Ok(true) = stream.can_send() {
+            match stream.write(&buf[sent..]) {
+                Ok(n) => sent += n,
+                Err(_) => panic!("stream write error"),
+            }
         }
     }
 }
