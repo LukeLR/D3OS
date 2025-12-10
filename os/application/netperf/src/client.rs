@@ -1,6 +1,6 @@
-use crate::cli::Cli;
-use crate::protocol::{recv_msg, send_msg, ControlMsg};
 use crate::Results;
+use crate::cli::Cli;
+use crate::protocol::{ControlMsg, Coordinator, recv_msg, send_msg};
 use core::net::SocketAddr;
 use network::{NetworkError, TcpStream};
 use terminal::println;
@@ -46,8 +46,26 @@ impl Client {
     pub fn signal_ready(&self) {
         send_msg(&self.control_channel, &ControlMsg::Ready);
     }
+}
 
-    pub fn get_local_addr(&self) -> SocketAddr {
+impl Coordinator for Client {
+    fn send(&self, msg: &ControlMsg) {
+        send_msg(&self.control_channel, msg);
+    }
+
+    fn recv(&self) -> ControlMsg {
+        recv_msg(&self.control_channel)
+    }
+
+    fn local_addr(&self) -> SocketAddr {
         self.control_channel.local_addr()
+    }
+
+    fn remote_addr(&self) -> SocketAddr {
+        self.control_channel.peer_addr()
+    }
+
+    fn is_server(&self) -> bool {
+        false
     }
 }

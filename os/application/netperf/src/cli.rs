@@ -14,6 +14,7 @@ pub struct Cli {
     pub interval_seconds: u32,
     pub duration_seconds: u32,
     pub json_output: bool,
+    pub parallel_streams: u32,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
@@ -22,7 +23,7 @@ pub enum Mode {
     Client,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq)]
 pub enum Protocol {
     Tcp,
     Udp,
@@ -63,6 +64,7 @@ impl Cli {
         let mut interval_seconds: u32 = 1;
         let mut duration_seconds: u32 = 10;
         let mut json_output = false;
+        let mut parallel_streams: u32 = 1;
 
         loop {
             match args.peek().map(String::as_str) {
@@ -101,6 +103,15 @@ impl Cli {
                         }
                     }
                 }
+                Some("-P") => {
+                    args.next();
+                    match args.next().map(|arg| arg.parse::<u32>()) {
+                        Some(Ok(arg)) if arg >= 1 => parallel_streams = arg,
+                        _ => {
+                            return Err("Wrong usage of option -P (must be >= 1)");
+                        }
+                    }
+                }
                 Some("--json") => {
                     args.next();
                     json_output = true;
@@ -123,6 +134,7 @@ impl Cli {
             interval_seconds,
             duration_seconds,
             json_output,
+            parallel_streams,
         })
     }
 }

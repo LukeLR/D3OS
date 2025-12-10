@@ -1,23 +1,28 @@
+use core::fmt::Write;
 extern crate alloc;
-use crate::Role;
-use alloc::{boxed::Box, string::String, vec, vec::Vec};
+
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 use chrono::TimeDelta;
-#[allow(unused_imports)]
-use runtime::*;
+use spin::Mutex;
 use terminal::println;
+
+use crate::Role;
 
 const BITS_PER_BYTE: f64 = 8.0;
 const BYTES_PER_MEGABYTE: f64 = 1024.0 * 1024.0;
 const BITS_PER_MEGABIT: f64 = 1_000_000.0;
 
-const INTERVAL_COL_WIDTH: usize = 16;
 const COL_SEP: &str = " ";
 
 trait Column {
     fn header(&self) -> &'static str;
     fn width(&self) -> usize;
     fn on_track(&mut self, _bytes: usize, _buf: &[u8]) {}
-    fn measure_interval(&self, elapsed_s: f64) -> Metric;
+    fn measure_interval(&self, interval: IntervalInfo) -> Metric;
     fn interval_reset(&mut self);
     fn measure_overall(&self, total_duration_s: f64) -> Metric;
 }
@@ -27,15 +32,15 @@ enum Metric {
     Speed { mbps: f64 },
     Loss { received: u64, expected: u64, loss_pct: f64 },
     Jitter { ms: f64 },
-    Empty,
+    Id { id: usize },
+    Interval { start_s: f64, end_s: f64 },
 }
 
 impl Metric {
     fn to_console_string(&self) -> String {
         match self {
             Metric::Bytes { total } => {
-                let mb = (*total as f64) / BYTES_PER_MEGABYTE;
-                alloc::format!("{:>6.2} MBytes", mb)
+                alloc::format!("{:>6.2} MBytes", (*total as f64) / BYTES_PER_MEGABYTE)
             }
             Metric::Speed { mbps } => alloc::format!("{:>6.2} Mbits/sec", mbps),
             Metric::Loss { received, expected, loss_pct } => {
@@ -43,7 +48,14 @@ impl Metric {
                 alloc::format!("{}/{} ({:.2}%)", lost, expected, loss_pct)
             }
             Metric::Jitter { ms } => alloc::format!("{:.3} ms", ms),
-            Metric::Empty => String::from("-"),
+            Metric::Id { id } => {
+                if *id == usize::MAX {
+                    String::from("[SUM]")
+                } else {
+                    alloc::format!("[{}]", id)
+                }
+            }
+            Metric::Interval { start_s, end_s } => alloc::format!("{:>4.2}-{:>4.2} sec", start_s, end_s),
         }
     }
 
@@ -62,18 +74,19 @@ impl Metric {
                 )
             }
             Metric::Jitter { ms } => alloc::format!("\"jitter_ms\": {:.4}", ms),
-            Metric::Empty => String::new(),
+            Metric::Id { id } => alloc::format!("\"thread_id\": {}", id),
+            Metric::Interval { start_s, end_s } => alloc::format!("\"start\": {:.2}, \"end\": {:.2}", start_s, end_s),
         }
     }
 }
 
-struct GenericStatsTracker {
-    columns: Vec<Box<dyn Column>>,
+struct StatsTracker {
+    columns: Vec<Box<dyn Column + Send>>,
     interval_json_data: Vec<String>,
 }
 
-impl GenericStatsTracker {
-    fn new(columns: Vec<Box<dyn Column>>) -> Self {
+impl StatsTracker {
+    fn new(columns: Vec<Box<dyn Column + Send>>) -> Self {
         Self {
             columns,
             interval_json_data: Vec::new(),
@@ -81,13 +94,14 @@ impl GenericStatsTracker {
     }
 
     fn get_header(&self) -> String {
-        // Interval header cell
-        let mut line = alloc::format!("{:>width$}", "Interval", width = INTERVAL_COL_WIDTH);
+        let mut line = String::new();
 
-        // Column headers
-        for c in &self.columns {
-            line.push_str(COL_SEP);
-            line.push_str(&alloc::format!("{:>width$}", c.header(), width = c.width()));
+        for (i, c) in self.columns.iter().enumerate() {
+            if i > 0 {
+                line.push_str(COL_SEP);
+            }
+
+            let _ = write!(line, "{:>width$}", c.header(), width = c.width());
         }
 
         line
@@ -100,25 +114,24 @@ impl GenericStatsTracker {
     }
 
     fn build_interval_string(&mut self, info: IntervalInfo) -> String {
-        let prefix = alloc::format!("{:>4.2}-{:>4.2} sec", info.interval_start_s, info.interval_end_s);
-        let mut line = alloc::format!("{:>width$}", prefix, width = INTERVAL_COL_WIDTH);
+        let mut line = String::new();
+        let mut json = String::new();
+        let _ = write!(json, "{{ \"seconds\": {:.2}", info.elapsed_seconds);
 
-        let mut json_parts: Vec<String> = Vec::new();
-        json_parts.push(alloc::format!("\"start\": {:.2}", info.interval_start_s));
-        json_parts.push(alloc::format!("\"end\": {:.2}", info.interval_end_s));
-        json_parts.push(alloc::format!("\"seconds\": {:.2}", info.elapsed_seconds));
+        for (i, column) in self.columns.iter_mut().enumerate() {
+            let measurement = column.measure_interval(info);
 
-        for column in &mut self.columns {
-            let measurement = column.measure_interval(info.elapsed_seconds);
+            if i > 0 {
+                line.push_str(COL_SEP);
+            }
 
-            json_parts.push(measurement.to_json());
+            let _ = write!(line, "{:>width$}", measurement.to_console_string(), width = column.width());
+            let _ = write!(json, ", {}", measurement.to_json());
+
             column.interval_reset();
-
-            line.push_str(COL_SEP);
-            line.push_str(&alloc::format!("{:>width$}", measurement.to_console_string(), width = column.width()));
         }
 
-        let json = alloc::format!("{{ {} }}", json_parts.join(", "));
+        json.push_str(" }");
         self.interval_json_data.push(json);
 
         line
@@ -128,34 +141,47 @@ impl GenericStatsTracker {
         println!("{}", self.build_interval_string(info));
     }
 
-    fn build_summary(&self, total_duration_s: f64) -> String {
-        let prefix = alloc::format!("{:>4.2}-{:>4.2} sec", 0.0, total_duration_s);
-        let mut line = alloc::format!("{:>width$}", prefix, width = INTERVAL_COL_WIDTH);
-        for c in &self.columns {
+    fn build_summary(&mut self, total_duration_s: f64) -> String {
+        let mut line = String::new();
+
+        for (i, c) in self.columns.iter().enumerate() {
             let measurement = c.measure_overall(total_duration_s);
 
-            line.push_str(COL_SEP);
-            line.push_str(&alloc::format!("{:>width$}", measurement.to_console_string(), width = c.width()));
+            if i > 0 {
+                line.push_str(COL_SEP);
+            }
+
+            let _ = write!(line, "{:>width$}", measurement.to_console_string(), width = c.width());
         }
 
         line
     }
 
     fn get_json(&self, total_duration_s: f64) -> String {
-        let mut summary_parts: Vec<String> = Vec::new();
-        summary_parts.push(alloc::format!("\"duration_seconds\": {:.4}", total_duration_s));
+        let mut json = String::new();
+
+        let _ = write!(json, "{{ \"summary\": {{ \"duration_seconds\": {:.4}", total_duration_s);
 
         for c in &self.columns {
-            summary_parts.push(c.measure_overall(total_duration_s).to_json());
+            let _ = write!(json, ", {}", c.measure_overall(total_duration_s).to_json());
         }
 
-        let summary_obj = alloc::format!("{{ {} }}", summary_parts.join(", "));
-        let intervals_arr = alloc::format!("[ {} ]", self.interval_json_data.join(", "));
+        json.push_str(" }, \"intervals\": [");
 
-        alloc::format!("{{ \"summary\": {}, \"intervals\": {} }}", summary_obj, intervals_arr)
+        for (i, interval) in self.interval_json_data.iter().enumerate() {
+            if i > 0 {
+                json.push_str(", ");
+            }
+
+            json.push_str(interval);
+        }
+
+        json.push_str("] }");
+        json
     }
 }
 
+#[derive(Copy, Clone)]
 struct IntervalInfo {
     elapsed_seconds: f64,
     interval_start_s: f64,
@@ -231,6 +257,74 @@ impl ReportInterval {
     }
 }
 
+struct IntervalColumn;
+
+impl IntervalColumn {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Column for IntervalColumn {
+    fn header(&self) -> &'static str {
+        "Interval"
+    }
+
+    fn width(&self) -> usize {
+        18
+    }
+
+    fn measure_interval(&self, interval: IntervalInfo) -> Metric {
+        Metric::Interval {
+            start_s: interval.interval_start_s,
+            end_s: interval.interval_end_s,
+        }
+    }
+
+    fn interval_reset(&mut self) {
+        // ignore
+    }
+
+    fn measure_overall(&self, total_duration_s: f64) -> Metric {
+        Metric::Interval {
+            start_s: 0f64,
+            end_s: total_duration_s,
+        }
+    }
+}
+
+struct IdColumn {
+    id: usize,
+}
+
+impl IdColumn {
+    fn new(id: usize) -> Self {
+        Self { id }
+    }
+}
+
+impl Column for IdColumn {
+    fn header(&self) -> &'static str {
+        "[ID]"
+    }
+
+    fn width(&self) -> usize {
+        5
+    }
+
+    fn measure_interval(&self, _: IntervalInfo) -> Metric {
+        Metric::Id { id: self.id }
+    }
+
+    fn interval_reset(&mut self) {
+        // ignore
+    }
+
+    fn measure_overall(&self, _total_duration_s: f64) -> Metric {
+        Metric::Id { id: self.id }
+    }
+}
+
 struct TransferColumn {
     bytes_interval: u64,
     total_bytes: u64,
@@ -250,7 +344,7 @@ impl Column for TransferColumn {
         "Transfer"
     }
     fn width(&self) -> usize {
-        20
+        16
     }
 
     fn on_track(&mut self, bytes: usize, _buf: &[u8]) {
@@ -259,7 +353,7 @@ impl Column for TransferColumn {
         self.total_bytes += b;
     }
 
-    fn measure_interval(&self, _elapsed_s: f64) -> Metric {
+    fn measure_interval(&self, _: IntervalInfo) -> Metric {
         Metric::Bytes { total: self.bytes_interval }
     }
 
@@ -291,7 +385,7 @@ impl Column for BitrateColumn {
         "Bitrate"
     }
     fn width(&self) -> usize {
-        20
+        18
     }
 
     fn on_track(&mut self, bytes: usize, _buf: &[u8]) {
@@ -300,9 +394,13 @@ impl Column for BitrateColumn {
         self.total_bytes += b;
     }
 
-    fn measure_interval(&self, elapsed_s: f64) -> Metric {
+    fn measure_interval(&self, interval: IntervalInfo) -> Metric {
         let bits = (self.bytes_interval as f64) * BITS_PER_BYTE;
-        let mbps = if elapsed_s > 0.0 { bits / (elapsed_s * BITS_PER_MEGABIT) } else { 0.0 };
+        let mbps = if interval.elapsed_seconds > 0.0 {
+            bits / (interval.elapsed_seconds * BITS_PER_MEGABIT)
+        } else {
+            0.0
+        };
         Metric::Speed { mbps }
     }
 
@@ -345,7 +443,7 @@ impl Column for UdpLossColumn {
         self.tracker.track(buf);
     }
 
-    fn measure_interval(&self, _elapsed_s: f64) -> Metric {
+    fn measure_interval(&self, _: IntervalInfo) -> Metric {
         let (rcv, exp, _lost, pct) = self.tracker.interval_loss();
         Metric::Loss {
             received: rcv,
@@ -478,7 +576,7 @@ impl Column for UdpJitterColumn {
         self.tracker.track(buf, time::systime());
     }
 
-    fn measure_interval(&self, _elapsed_s: f64) -> Metric {
+    fn measure_interval(&self, _: IntervalInfo) -> Metric {
         Metric::Jitter {
             ms: self.tracker.get_jitter_ms(),
         }
@@ -547,60 +645,178 @@ impl UdpJitterTracker {
 }
 
 pub struct Stats {
-    interval: ReportInterval,
-    core: GenericStatsTracker,
+    interval: Mutex<ReportInterval>,
+    trackers: Mutex<BTreeMap<usize, StatsTracker>>,
+    sum_tracker: Mutex<Option<StatsTracker>>,
+    protocol_is_udp: bool,
+    role: Role,
 }
 
 impl Stats {
     pub fn tcp(interval_seconds: u32, total_time_seconds: u32) -> Self {
-        let columns: Vec<Box<dyn Column>> = vec![Box::new(TransferColumn::new()), Box::new(BitrateColumn::new())];
         Self {
-            interval: ReportInterval::new(interval_seconds, total_time_seconds),
-            core: GenericStatsTracker::new(columns),
+            interval: Mutex::new(ReportInterval::new(interval_seconds, total_time_seconds)),
+            trackers: Mutex::new(BTreeMap::new()),
+            sum_tracker: Mutex::new(None),
+            protocol_is_udp: false,
+            role: Role::Sender,
         }
     }
 
     pub fn udp(interval_seconds: u32, total_time_seconds: u32, role: Role) -> Self {
-        let mut columns: Vec<Box<dyn Column>> = vec![Box::new(TransferColumn::new()), Box::new(BitrateColumn::new())];
+        Self {
+            interval: Mutex::new(ReportInterval::new(interval_seconds, total_time_seconds)),
+            trackers: Mutex::new(BTreeMap::new()),
+            sum_tracker: Mutex::new(None),
+            protocol_is_udp: true,
+            role,
+        }
+    }
 
-        if let Role::Receiver = role {
-            columns.push(Box::new(UdpLossColumn::new()));
-            columns.push(Box::new(UdpJitterColumn::new()));
+    fn create_tracker(&self, thread_id: usize) -> StatsTracker {
+        let mut columns: Vec<Box<dyn Column + Send>> = vec![
+            Box::new(IdColumn::new(thread_id)),
+            Box::new(IntervalColumn::new()),
+            Box::new(TransferColumn::new()),
+            Box::new(BitrateColumn::new()),
+        ];
+
+        if self.protocol_is_udp {
+            if let Role::Receiver = self.role {
+                columns.push(Box::new(UdpLossColumn::new()));
+                columns.push(Box::new(UdpJitterColumn::new()));
+            }
         }
 
-        Self {
-            interval: ReportInterval::new(interval_seconds, total_time_seconds),
-            core: GenericStatsTracker::new(columns),
+        StatsTracker::new(columns)
+    }
+
+    pub fn register_thread(&self, thread_id: usize) {
+        let mut trackers = self.trackers.lock();
+
+        if !trackers.contains_key(&thread_id) {
+            trackers.insert(thread_id, self.create_tracker(thread_id));
+        }
+
+        let mut sum_tracker_guard = self.sum_tracker.lock();
+
+        if sum_tracker_guard.is_none() && trackers.len() > 1 {
+            *sum_tracker_guard = Some(self.create_tracker(usize::MAX));
         }
     }
 
     pub fn has_total_time_elapsed(&self) -> bool {
-        self.interval.has_total_time_elapsed()
+        self.interval.lock().has_total_time_elapsed()
     }
 
     pub fn get_header(&self) -> String {
-        self.core.get_header()
-    }
+        let trackers = self.trackers.lock();
 
-    pub fn track(&mut self, bytes: usize, buf: &[u8]) {
-        self.core.track(bytes, buf);
-    }
-
-    pub fn print_interval_info(&mut self) {
-        if let Some(info) = self.interval.check() {
-            self.core.print_interval_info(info);
+        if let Some((_, tracker)) = trackers.iter().next() {
+            tracker.get_header()
+        } else {
+            self.create_tracker(0).get_header()
         }
     }
 
-    pub fn finalize_and_get_summary(&mut self) -> String {
-        if let Some(info) = self.interval.finalize_pending_interval() {
-            self.core.print_interval_info(info);
+    pub fn track(&self, thread_id: usize, bytes: usize, buf: &[u8]) {
+        let mut trackers = self.trackers.lock();
+        if let Some(tracker) = trackers.get_mut(&thread_id) {
+            tracker.track(bytes, buf);
+        }
+        drop(trackers);
+
+        let mut sum_tracker = self.sum_tracker.lock();
+        if let Some(tracker) = sum_tracker.as_mut() {
+            tracker.track(bytes, buf);
+        }
+    }
+
+    pub fn print_interval_info(&self) {
+        let mut interval = self.interval.lock();
+
+        if let Some(info) = interval.check() {
+            drop(interval);
+            let mut trackers = self.trackers.lock();
+            let mut sum_tracker = self.sum_tracker.lock();
+
+            if let Some(tracker) = sum_tracker.as_mut() {
+                println!("{}", tracker.get_header());
+            }
+
+            for (_, tracker) in trackers.iter_mut() {
+                tracker.print_interval_info(info);
+            }
+            drop(trackers);
+
+            if let Some(tracker) = sum_tracker.as_mut() {
+                tracker.print_interval_info(info);
+                println!("- - - - - - - - - - - - - - - - - - - - - - -");
+            }
+        }
+    }
+
+    pub fn finalize_and_get_summary(&self) -> String {
+        let mut interval = self.interval.lock();
+
+        if let Some(info) = interval.finalize_pending_interval() {
+            drop(interval);
+            let mut trackers = self.trackers.lock();
+            let mut sum_tracker = self.sum_tracker.lock();
+
+            if let Some(tracker) = sum_tracker.as_mut() {
+                println!("{}", tracker.get_header());
+            }
+
+            for (_, tracker) in trackers.iter_mut() {
+                tracker.print_interval_info(info);
+            }
+            drop(trackers);
+
+            if let Some(tracker) = sum_tracker.as_mut() {
+                tracker.print_interval_info(info);
+            }
         }
 
-        self.core.build_summary(self.interval.total_duration_s())
+        let interval = self.interval.lock();
+        let total_duration = interval.total_duration_s();
+        drop(interval);
+
+        let mut trackers = self.trackers.lock();
+        self.build_summary(&mut trackers, total_duration)
+    }
+
+    fn build_summary(&self, trackers: &mut BTreeMap<usize, StatsTracker>, total_duration_s: f64) -> String {
+        let mut lines = Vec::new();
+
+        for (_, tracker) in trackers.iter_mut() {
+            lines.push(tracker.build_summary(total_duration_s));
+        }
+
+        let mut sum_tracker = self.sum_tracker.lock();
+        if let Some(tracker) = sum_tracker.as_mut() {
+            lines.push(tracker.build_summary(total_duration_s));
+        }
+
+        lines.join("\n")
     }
 
     pub fn stats_as_json(&self) -> String {
-        self.core.get_json(self.interval.total_duration_s())
+        let interval = self.interval.lock();
+        let total_duration = interval.total_duration_s();
+        drop(interval);
+
+        let trackers = self.trackers.lock();
+        let mut stream_jsons = Vec::new();
+
+        for (thread_id, tracker) in trackers.iter() {
+            stream_jsons.push(alloc::format!(
+                "{{ \"stream_id\": {}, {} }}",
+                thread_id,
+                &tracker.get_json(total_duration)[1..tracker.get_json(total_duration).len() - 1]
+            ));
+        }
+
+        alloc::format!("{{ \"streams\": [{}] }}", stream_jsons.join(", "))
     }
 }

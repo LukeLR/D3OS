@@ -2,6 +2,7 @@ use crate::cli::Cli;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::net::SocketAddr;
 use network::TcpStream;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,9 @@ pub enum ControlMsg {
     Results(String, String, String),
     Ack,
     Ready,
+    StreamReady(u32),
+    AllStreamsReady,
+    StartBenchmark,
 }
 
 /// Blocks until the message is sent.
@@ -71,6 +75,36 @@ fn write_all(stream: &TcpStream, buf: &[u8]) {
             }
         } else {
             sleep(50);
+        }
+    }
+}
+
+pub trait Coordinator {
+    fn send(&self, msg: &ControlMsg);
+    fn recv(&self) -> ControlMsg;
+    fn local_addr(&self) -> SocketAddr;
+    fn remote_addr(&self) -> SocketAddr;
+    fn is_server(&self) -> bool;
+
+    fn wait_for_stream_ready(&self) -> u32 {
+        match self.recv() {
+            ControlMsg::StreamReady(stream_id) => stream_id,
+            _ => panic!("expected stream ready signal"),
+        }
+    }
+
+    fn signal_stream_ready(&self, stream_id: u32) {
+        self.send(&ControlMsg::StreamReady(stream_id));
+    }
+
+    fn signal_start_benchmark(&self) {
+        self.send(&ControlMsg::StartBenchmark);
+    }
+
+    fn wait_for_start_benchmark(&self) {
+        match self.recv() {
+            ControlMsg::StartBenchmark => {}
+            _ => panic!("expected start benchmark signal"),
         }
     }
 }
