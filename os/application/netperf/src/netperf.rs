@@ -17,6 +17,7 @@ use alloc::vec;
 use core::fmt;
 use core::fmt::{Display, Formatter};
 use core::net::SocketAddr;
+use concurrent::thread;
 use network::{NetworkError, TcpListener, TcpStream, UdpSocket};
 #[allow(unused_imports)]
 use runtime::*;
@@ -201,6 +202,8 @@ fn start_tcp_receiver(socket: TcpStream, config: Cli) -> Results {
                     }
                 }
             }
+        } else {
+            thread::sleep(30);
         }
 
         tracker.print_interval_info();
@@ -229,6 +232,8 @@ fn start_tcp_sender(socket: TcpStream, config: Cli) -> Results {
                     }
                 }
             };
+        } else {
+            thread::sleep(30)
         }
 
         tracker.print_interval_info();
@@ -265,6 +270,8 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
                     }
                 }
             };
+        } else {
+            thread::sleep(50)
         }
 
         tracker.print_interval_info();
@@ -298,6 +305,8 @@ fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
                     }
                 }
             }
+        } else {
+            thread::sleep(30)
         }
 
         tracker.print_interval_info();

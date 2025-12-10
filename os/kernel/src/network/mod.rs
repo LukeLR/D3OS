@@ -54,7 +54,7 @@ pub fn init() {
 
     if let Some(rtl8139) = RTL8139.get() {
         extern "sysv64" fn poll() {
-            loop { poll_sockets(); scheduler().sleep(7); }
+            loop { poll_sockets(); scheduler().switch_thread_no_interrupt(); }
         }
         scheduler().ready(Thread::new_kernel_thread(poll, "RTL8139"));
         
@@ -197,11 +197,11 @@ pub fn open_udp() -> SocketHandle {
     let sockets = SOCKETS.get().expect("Socket set not initialized!");
 
     let rx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![udp::PacketMetadata::EMPTY; 44],
         vec![0; 65535],
     );
     let tx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![udp::PacketMetadata::EMPTY; 44],
         vec![0; 65535],
     );
 
@@ -403,9 +403,18 @@ fn poll_sockets() -> Option<()> {
     // Smoltcp expects a mutable reference to the device, but the RTL8139 driver is built
     // to work with a shared reference. We can safely cast the shared reference to a mutable.
     let device = unsafe { ptr::from_ref(rtl8139.deref()).cast_mut().as_mut().unwrap() };
-
     let interface = interfaces.get_mut(0).expect("failed to get interface");
-    interface.poll(time, device, &mut sockets);
+
+    let mut poll_budget = 16;
+    while poll_budget > 0 {
+        match interface.poll(time, device, &mut sockets) {
+            iface::PollResult::None => break,
+            iface::PollResult::SocketStateChanged => {
+                poll_budget -= 1;
+            },
+        }
+    }
+
     // DHCP handling is based on https://github.com/smoltcp-rs/smoltcp/blob/main/examples/dhcp_client.rs
     let dhcp_handle = DHCP_SOCKET.get().expect("DHCP socket does not exist yet");
     let dhcp_socket = sockets.get_mut::<dhcpv4::Socket>(*dhcp_handle);

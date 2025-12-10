@@ -5,10 +5,11 @@ use alloc::vec::Vec;
 use network::TcpStream;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
+use concurrent::thread::sleep;
 
 // Message buffer sizes
 pub const TCP_RECV_BUFFER_SIZE: usize = 65535;
-pub const TCP_SEND_MESSAGE_SIZE: usize = 8192;
+pub const TCP_SEND_MESSAGE_SIZE: usize = 65535;
 pub const UDP_RECV_BUFFER_SIZE: usize = 65535;
 pub const UDP_SEND_MESSAGE_SIZE: usize = 1472;
 
@@ -52,6 +53,8 @@ fn read_exact(stream: &TcpStream, buf: &mut [u8]) {
                 Ok(n) => received += n,
                 Err(_) => panic!("stream read error"),
             }
+        } else {
+            sleep(50);
         }
     }
 }
@@ -66,6 +69,8 @@ fn write_all(stream: &TcpStream, buf: &[u8]) {
                 Ok(n) => sent += n,
                 Err(_) => panic!("stream write error"),
             }
+        } else {
+            sleep(50);
         }
     }
 }
