@@ -92,10 +92,18 @@ impl Display for Role {
     }
 }
 
-pub(crate) struct Results {
-    pub header: String,
+struct Results {
     pub summary: String,
     pub json: String,
+}
+
+impl Results {
+    fn new(stats: &Arc<Stats>) -> Self {
+        Self {
+            summary: stats.finalize_and_get_summary(),
+            json: stats.stats_as_json(),
+        }
+    }
 }
 
 fn start_server(config: Cli) {
@@ -197,7 +205,6 @@ fn start_client(config: Cli) {
     let server_results = client.receive_server_results();
 
     println!("{}:", role.inverse());
-    println!("{}", server_results.header);
     println!("{}", server_results.summary);
 
     if config.json_output {
@@ -216,11 +223,7 @@ fn run_tcp_single(role: Role, socket: TcpStream, config: Cli) -> Results {
         Role::Receiver => tcp_receiver_loop(&stats, socket, thread_id),
     }
 
-    Results {
-        header: stats.get_header(),
-        summary: stats.finalize_and_get_summary(),
-        json: stats.stats_as_json(),
-    }
+    Results::new(&stats)
 }
 
 fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, local_addr: SocketAddr) -> Results {
@@ -255,7 +258,7 @@ fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
     start_flag.store(true, Ordering::Release);
     join_threads(&threads);
 
-    build_results(&stats)
+    Results::new(&stats)
 }
 
 fn connect_tcp_streams<C: Coordinator>(coordinator: &C, config: Cli) -> Vec<TcpStream> {
@@ -416,7 +419,7 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
     start_flag.store(true, Ordering::Release);
     join_threads(&threads);
 
-    build_results(&stats)
+    Results::new(&stats)
 }
 
 fn udp_receiver_thread_entry() {
@@ -446,7 +449,7 @@ fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
 
     udp_receiver_loop(&stats, &socket, thread_id);
 
-    build_results(&stats)
+    Results::new(&stats)
 }
 
 fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli) -> Results {
@@ -458,7 +461,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
 
     udp_sender_loop(&stats, socket, remote_addr, thread_id);
 
-    build_results(&stats)
+    Results::new(&stats)
 }
 
 fn udp_receiver_loop(stats: &Arc<Stats>, socket: &Arc<UdpSocket>, thread_id: usize) {
@@ -516,14 +519,6 @@ fn udp_sender_loop(stats: &Arc<Stats>, socket: UdpSocket, remote_addr: SocketAdd
 
 fn current_thread_id() -> usize {
     thread::current().map(|t| t.id()).unwrap_or(0)
-}
-
-fn build_results(stats: &Arc<Stats>) -> Results {
-    Results {
-        header: stats.get_header(),
-        summary: stats.finalize_and_get_summary(),
-        json: stats.stats_as_json(),
-    }
 }
 
 fn handle_network_error(err: NetworkError, operation: &str) -> bool {

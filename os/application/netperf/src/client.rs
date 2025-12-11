@@ -31,7 +31,7 @@ impl Client {
 
     pub fn receive_server_results(&self) -> Results {
         match recv_msg(&self.control_channel) {
-            ControlMsg::Results(header, summary, json) => Results { header, summary, json },
+            ControlMsg::Results(summary, json) => Results { summary, json },
             _ => panic!("expected results from server"),
         }
     }

@@ -40,7 +40,7 @@ impl Server {
     }
 
     pub fn send_results(&self, results: Results) {
-        send_msg(&self.control_channel, &ControlMsg::Results(results.header, results.summary, results.json));
+        send_msg(&self.control_channel, &ControlMsg::Results(results.summary, results.json));
     }
 
     pub fn signal_ready(&self) {

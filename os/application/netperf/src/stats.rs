@@ -788,12 +788,16 @@ impl Stats {
 
     fn build_summary(&self, trackers: &mut BTreeMap<usize, StatsTracker>, total_duration_s: f64) -> String {
         let mut lines = Vec::new();
+        let mut sum_tracker = self.sum_tracker.lock();
+
+        if let Some(tracker) = sum_tracker.as_mut() {
+            lines.push(tracker.get_header());
+        }
 
         for (_, tracker) in trackers.iter_mut() {
             lines.push(tracker.build_summary(total_duration_s));
         }
 
-        let mut sum_tracker = self.sum_tracker.lock();
         if let Some(tracker) = sum_tracker.as_mut() {
             lines.push(tracker.build_summary(total_duration_s));
         }
