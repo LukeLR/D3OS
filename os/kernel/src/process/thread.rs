@@ -17,6 +17,9 @@
    ║  - process            return reference to my process                    ║
    ║  - id                 return my thread id                               ║
    ║  - join               calling thread will wait until 'self' terminates  ║
+   ║  - state              get current state of the thread                   ║
+   ║  - set_state          set current state of the thread                   ║
+   ║  - compare_and_set    atomic state transition                           ║
    ║                                                                         ║
    ║ Thread stack:                                                           ║
    ║  Kernel threads have a stack of 'KERNEL_STACK_PAGES'. User threads have ║
@@ -28,7 +31,7 @@
    ║  'MAIN_USER_STACK_START'. The next stack for the next user stack is     ║
    ║  allocated at 'MAIN_USER_STACK_START' + 'MAX_USER_STACK_SIZE' and so on.║
    ╟─────────────────────────────────────────────────────────────────────────╢
-   ║ Author: Fabian Ruhland & Michael Schoettner, 28.6.2025, HHU             ║
+   ║ Author: Fabian Ruhland & Michael Schoettner, 26.12.2025, HHU            ║
    ╚═════════════════════════════════════════════════════════════════════════╝
 */
 
@@ -50,6 +53,7 @@ use log::error;
 use log::warn;
 use core::arch::naked_asm;
 use core::ptr;
+use core::sync::atomic::{AtomicU8, Ordering};
 use goblin::elf::Elf;
 use goblin::elf64;
 use log::info;
@@ -95,6 +99,7 @@ pub struct Thread {
     user_kickoff: VirtAddr,
     /// the actual entry point (eg. for user threads the single parameter to kickoff)
     entry: extern "sysv64" fn(),
+    state: AtomicU8,
 }
 
 impl Stacks {
@@ -131,6 +136,7 @@ impl Thread {
                 .expect("Trying to create a kernel thread before process initialization!"),
             user_kickoff: VirtAddr::zero(),
             entry,
+            state: AtomicU8::new(ThreadState::Created.as_u8()),
         };
 
         thread.prepare_kernel_stack();
@@ -198,6 +204,7 @@ impl Thread {
             process: parent,
             user_kickoff: kickoff_addr,
             entry,
+            state: AtomicU8::new(ThreadState::Created.as_u8()),
         };
 
         thread.prepare_kernel_stack();
@@ -504,7 +511,34 @@ impl Thread {
             ptr::from_ref(&stack[stack.len() - 1]).offset(1)
         }
     }
+
+    /// Get the current state of the thread
+    pub fn state(&self) -> ThreadState {
+        ThreadState::from_u8(self.state.load(Ordering::Acquire))
+    }
+
+    /// Set the current state of the thread
+    pub fn set_state(&self, new: ThreadState) {
+        self.state.store(new.as_u8(), Ordering::Release);
+    }
+
+    /// Atomic state transition (very important)
+    pub fn compare_and_set(
+        &self,
+        expected: ThreadState,
+        new: ThreadState,
+    ) -> bool {
+        self.state
+            .compare_exchange(
+                expected.as_u8(),
+                new.as_u8(),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
 }
+
 
 /// Low-level function for starting a thread in kernel mode
 #[unsafe(naked)]
@@ -612,4 +646,43 @@ unsafe extern "C" fn thread_switch(current_rsp0: *mut u64, next_rsp0: u64, next_
 pub enum ProcessLoadError {
     NotFound,
     ElfInvalid,
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ThreadState {
+    Created,
+    Ready,      // runnable, waiting to be scheduled
+    Running,    // currently executing on a core
+    PreBlocking,// prepared to block
+    Blocked,    // blocked
+    Sleeping,   // sleeping for some time
+    Exited,     // finished, waiting to be reaped
+}
+
+impl ThreadState {
+    fn as_u8(self) -> u8 {
+        match self {
+            ThreadState::Created => 0,
+            ThreadState::Ready  => 1,
+            ThreadState::Running => 2,
+            ThreadState::PreBlocking  => 3,
+            ThreadState::Blocked   => 4,
+            ThreadState::Sleeping   => 5,
+            ThreadState::Exited   => 6,
+        }
+    }
+
+    fn from_u8(v: u8) -> ThreadState {
+        match v {
+            0 => ThreadState::Created,
+            1 => ThreadState::Ready,
+            2 => ThreadState::Running,
+            3 => ThreadState::PreBlocking,
+            4 => ThreadState::Blocked,
+            5 => ThreadState::Sleeping,
+            6 => ThreadState::Exited,
+            _ => ThreadState::Exited, // defensive
+        }
+    }
 }
