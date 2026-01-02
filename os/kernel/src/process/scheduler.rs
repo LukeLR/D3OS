@@ -18,11 +18,12 @@
    ║   - switch_thread_from_interrupt  switch thread, called from interrupt  ║
    ║   - switch_thread_no_interrupt    switch thread, not called from int.   ║
    ║   - current_ids            get the (pid, tid) of the current thread     ║
-   ║   - block                  put the calling thread into blocked mode     ║
-   ║   - deblock                wake up a blocked thread                     ║
+   ║   - prepare_to_block       prepare the calling thread to block          ║
+   ║   - block_if_allowed       block the calling thread (if ok)             ║
+   ║   - unblock                unblock a given thread                       ║
    ║   - get_status             for ps command - get all processes & threads ║
    ╟─────────────────────────────────────────────────────────────────────────╢
-   ║ Author: Fabian Ruhland, 26.12.2025, HHU                                 ║
+   ║ Author: Fabian Ruhland & Michael Schopettner, 30.12.2025, HHU           ║
    ╚═════════════════════════════════════════════════════════════════════════╝
 */
 use crate::process::thread::{Thread, ThreadState};
@@ -190,37 +191,80 @@ impl Scheduler {
         }
     }
 
-    /// Put calling thread to block
-    pub fn block(&self) {
+    /// Prepare to block the calling thread
+    pub fn prepare_to_block(&self) {
+        let state = self.get_ready_state();
+        let thread = Scheduler::current(&state);
+        thread.reset_wake_pending();
+    }
+
+    /// Block calling thread only if allowed; otherwise consume pending wake and return.
+    pub fn block_if_allowed(&self) {
         let mut state = self.get_ready_state();
 
         if !state.initialized {
-            // Scheduler is not initialized yet, so this function has been called during the boot process
-            // We panic
             panic!("Scheduler: Cannot block thread before scheduler is initialized!");
-        } else {
-            // Scheduler is initialized, so we can block the calling thread
-            let thread = Scheduler::current(&state);
-            thread.set_state(ThreadState::Blocked);
-            {
-                // Execute in own block, so that the lock is released automatically (block() does not return)
-                let mut block_list = self.blocked_list.lock();
-                block_list.push(thread);
-            } // drop lock for block_list
-            //info!("Scheduler::block: switch to next thread");
-            self.block_and_switch(&mut state);
         }
+
+        let thread = Scheduler::current(&state);
+
+        // If a wake happened "early", don't block.
+        if thread.should_block_or_consume_wake() == false {
+            // A wake was pending and is now consumed.
+            // Thread continues running.
+            return;
+        }
+
+        // Actually block.
+        thread.set_state(ThreadState::Blocked);
+        {
+            let mut block_list = self.blocked_list.lock();
+            block_list.push(thread);
+        }
+        self.block_and_switch(&mut state);
     }
 
-    /// Put calling thread to block
-    pub fn deblock(&self, pid: usize, tid: usize) {
-        let mut block_list = self.blocked_list.lock();
-
-        if let Some(pos) = block_list.iter().position(|thread| thread.id() == tid && thread.process().id() == pid) {
-            let thread = block_list.remove(pos);
+    /// Unblock thread with given (pid, tid). \
+    /// Returns true if thread was found and unblocked, false otherwise.
+    pub fn unblock(&self, pid: usize, tid: usize) -> bool {
+        // 1) Check if the given thread is in the blocked list -> need to be woken up
+        let blocked_thread: Option<Arc<Thread>> = {
+            let mut block_list = self.blocked_list.lock();
+            if let Some(pos) = block_list.iter().position(|t| t.id() == tid && t.process().id() == pid) {
+                Some(block_list.remove(pos))
+            } else {
+                None
+            }
+        };
+        // If found, wake it up
+        if let Some(thread) = blocked_thread {
+            // Record wake (harmless / consistent with semantics)
             thread.set_state(ThreadState::Ready);
             self.ready(thread);
+            return true;
         }
+
+        // 2) Check ready queue (thread has not yet blocked) and current thread (thread has not blocked yet and is interrupted from a device interrupt)
+        {
+            let state = self.get_ready_state();
+
+            // 2a) Current thread (single-core): prevent it from blocking if it's about to.
+            if let Some(curr_thread) = &state.current_thread {
+                if curr_thread.id() == tid && curr_thread.process().id() == pid {
+                    curr_thread.set_wake_pending();
+                    return true;
+                }
+            }
+            // 2b) Ready queue
+            if let Some(thread) = state.ready_queue.iter().find(|t| t.id() == tid && t.process().id() == pid) {
+                thread.set_wake_pending();
+                return true;
+            }
+            // drop(state) here
+        }
+
+        // 3) Thread not found in any known list.
+        false
     }
 
     /// Switch from current to next thread (from ready queue). \
@@ -438,13 +482,7 @@ impl Scheduler {
 
         // Current
         let cur = self.current_thread();
-        let _ = writeln!(
-            out,
-            "PID: {}, TID: {}, State: {:?}",
-            cur.process().id(),
-            cur.id(),
-            ThreadState::Running
-        );
+        let _ = writeln!(out, "PID: {}, TID: {}, State: {:?}", cur.process().id(), cur.id(), ThreadState::Running);
 
         // Ready Queue
         let state = self.get_ready_state();
@@ -474,5 +512,4 @@ impl Scheduler {
         buffer[..len].copy_from_slice(&bytes[..len]);
         Ok(len)
     }
-
 }

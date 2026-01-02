@@ -31,7 +31,7 @@
    ║  'MAIN_USER_STACK_START'. The next stack for the next user stack is     ║
    ║  allocated at 'MAIN_USER_STACK_START' + 'MAX_USER_STACK_SIZE' and so on.║
    ╟─────────────────────────────────────────────────────────────────────────╢
-   ║ Author: Fabian Ruhland & Michael Schoettner, 26.12.2025, HHU            ║
+   ║ Author: Fabian Ruhland & Michael Schoettner, 28.12.2025, HHU            ║
    ╚═════════════════════════════════════════════════════════════════════════╝
 */
 
@@ -39,24 +39,24 @@ use crate::consts::MAIN_USER_STACK_START;
 use crate::consts::MAX_USER_STACK_SIZE;
 use crate::consts::USER_SPACE_ENV_START;
 use crate::initrd;
+use crate::memory::PAGE_SIZE;
 use crate::memory::stack;
 use crate::memory::stack::StackAllocator;
 use crate::memory::vma::VmaType;
-use crate::memory::PAGE_SIZE;
 use crate::process::process::Process;
 use crate::process::scheduler;
 use crate::syscall::syscall_dispatcher::CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX;
 use crate::{process_manager, scheduler, tss};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use log::error;
-use log::warn;
 use core::arch::naked_asm;
 use core::ptr;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use goblin::elf::Elf;
 use goblin::elf64;
+use log::error;
 use log::info;
+use log::warn;
 use spin::Mutex;
 use x86_64::PrivilegeLevel::Ring3;
 use x86_64::VirtAddr;
@@ -100,6 +100,7 @@ pub struct Thread {
     /// the actual entry point (eg. for user threads the single parameter to kickoff)
     entry: extern "sysv64" fn(),
     state: AtomicU8,
+    wake_pending: AtomicBool, // false => allowed to block; true => do NOT block (wake pending)
 }
 
 impl Stacks {
@@ -137,6 +138,7 @@ impl Thread {
             user_kickoff: VirtAddr::zero(),
             entry,
             state: AtomicU8::new(ThreadState::Created.as_u8()),
+            wake_pending: AtomicBool::new(false),
         };
 
         thread.prepare_kernel_stack();
@@ -151,7 +153,7 @@ impl Thread {
             Some(app) => app.data(),
             None => return Err(ProcessLoadError::NotFound),
         };
-        
+
         let current_process = process_manager().read().current_process();
         let new_process = process_manager().write().create_process();
         let pid = new_process.id();
@@ -180,11 +182,7 @@ impl Thread {
     /// `kickoff_addr` address of the first function to be called,
     /// with the `entry` function is the parameter. \
     /// This indirection ensures that the thread calls exit when it is done, see `library::concurrent::thread`.
-    pub fn new_user_thread(
-        parent: Arc<Process>,
-        kickoff_addr: VirtAddr,
-        entry: extern "sysv64" fn(),
-    ) -> Arc<Thread> {
+    pub fn new_user_thread(parent: Arc<Process>, kickoff_addr: VirtAddr, entry: extern "sysv64" fn()) -> Arc<Thread> {
         let pid = parent.id();
         let tid = scheduler::next_thread_id(); // get id for new thread
 
@@ -192,7 +190,10 @@ impl Thread {
         let kernel_stack = stack::alloc_kernel_stack(&parent, pid, tid, "userthread");
 
         // Create user stack for the application
-        let stack_vma = parent.virtual_address_space.user_alloc_map_partial(None, (MAX_USER_STACK_SIZE / PAGE_SIZE) as u64,  VmaType::UserStack, "usrstack", 1, true).expect("could not create user stack");
+        let stack_vma = parent
+            .virtual_address_space
+            .user_alloc_map_partial(None, (MAX_USER_STACK_SIZE / PAGE_SIZE) as u64, VmaType::UserStack, "usrstack", 1, true)
+            .expect("could not create user stack");
 
         // Make a Vec for the user stack
         let user_stack: Vec<u64, StackAllocator> = stack::alloc_user_stack(pid, tid, stack_vma.start().as_u64() as usize, MAX_USER_STACK_SIZE);
@@ -205,6 +206,7 @@ impl Thread {
             user_kickoff: kickoff_addr,
             entry,
             state: AtomicU8::new(ThreadState::Created.as_u8()),
+            wake_pending: AtomicBool::new(false),
         };
 
         thread.prepare_kernel_stack();
@@ -369,10 +371,7 @@ impl Thread {
     /// Parse an ELF binary and and map it into the new process's address space.
     ///
     /// Returns the application's entry point.
-    fn parse_and_map_elf_bin(
-        current_process: &Arc<Process>, new_process: &Arc<Process>,
-        elf_buffer: &[u8], name: &str,
-    ) -> Result<u64, ProcessLoadError> {
+    fn parse_and_map_elf_bin(current_process: &Arc<Process>, new_process: &Arc<Process>, elf_buffer: &[u8], name: &str) -> Result<u64, ProcessLoadError> {
         let elf = Elf::parse(elf_buffer).map_err(|e| {
             error!("Failed to parse application: {e:?}");
             ProcessLoadError::ElfInvalid
@@ -396,9 +395,7 @@ impl Thread {
                 let code_page_count = header.p_filesz.div_ceil(PAGE_SIZE.try_into().unwrap());
 
                 // create mapping for 'total_page_count'
-                let virt_start = Page::from_start_address(
-                    VirtAddr::new(header.p_vaddr)
-                ).map_err(|e| {
+                let virt_start = Page::from_start_address(VirtAddr::new(header.p_vaddr)).map_err(|e| {
                     error!("ELF: Program section not page aligned: {e:?}");
                     ProcessLoadError::ElfInvalid
                 })?;
@@ -471,7 +468,9 @@ impl Thread {
             panic!("Environment size exceeds one page, which is not supported yet");
         }
 
-        let env_frame = new_process.virtual_address_space.get_phys(env_virt_start.start_address().as_u64())
+        let env_frame = new_process
+            .virtual_address_space
+            .get_phys(env_virt_start.start_address().as_u64())
             .expect("get_phys failed for environment");
 
         // create argc and argv in the user space environment
@@ -507,9 +506,7 @@ impl Thread {
 
     /// Get a pointer to the top of the given stack.
     fn get_top_of_stack(stack: &Vec<u64, StackAllocator>) -> *const u64 {
-        unsafe {
-            ptr::from_ref(&stack[stack.len() - 1]).offset(1)
-        }
+        unsafe { ptr::from_ref(&stack[stack.len() - 1]).offset(1) }
     }
 
     /// Get the current state of the thread
@@ -523,30 +520,46 @@ impl Thread {
     }
 
     /// Atomic state transition (very important)
-    pub fn compare_and_set(
-        &self,
-        expected: ThreadState,
-        new: ThreadState,
-    ) -> bool {
+    pub fn compare_and_set(&self, expected: ThreadState, new: ThreadState) -> bool {
         self.state
-            .compare_exchange(
-                expected.as_u8(),
-                new.as_u8(),
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
+            .compare_exchange(expected.as_u8(), new.as_u8(), Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
     }
-}
 
+    /// Clear any previous wakeup state before attempting to block.
+    /// After this point, a wakeup will set wake_pending=true in order to prevent blocking.
+    pub fn reset_wake_pending(&self) {
+        self.wake_pending.store(false, Ordering::Release);
+    }
+
+    pub fn set_wake_pending(&self) {
+        self.wake_pending.store(true, Ordering::Release);
+    }
+
+    /// Returns true if calling thread should actually block.
+    /// If a wake is pending, consumes it and returns false.
+    pub fn should_block_or_consume_wake(&self) -> bool {
+        // swap(false) returns old value
+        let old = self.wake_pending.swap(false, Ordering::AcqRel);
+
+        if old {
+            // wake was pending -> consumed -> do NOT block
+            return false;
+        }
+        // no wake pending -> block is allowed
+        true
+    }
+}
 
 /// Low-level function for starting a thread in kernel mode
 #[unsafe(naked)]
 unsafe extern "C" fn thread_kernel_start(old_rsp0: u64) {
     naked_asm!(
         "mov rsp, rdi", // First parameter -> load 'old_rsp0'
-        "pop rax", "wrgsbase rax",
-        "pop rax", "wrfsbase rax",
+        "pop rax",
+        "wrgsbase rax",
+        "pop rax",
+        "wrfsbase rax",
         "pop rbp",
         "pop rdi", // 'old_rsp0' is here
         "pop rsi",
@@ -648,28 +661,27 @@ pub enum ProcessLoadError {
     ElfInvalid,
 }
 
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ThreadState {
     Created,
-    Ready,      // runnable, waiting to be scheduled
-    Running,    // currently executing on a core
-    PreBlocking,// prepared to block
-    Blocked,    // blocked
-    Sleeping,   // sleeping for some time
-    Exited,     // finished, waiting to be reaped
+    Ready,       // runnable, waiting to be scheduled
+    Running,     // currently executing on a core
+    PreBlocking, // prepared to block
+    Blocked,     // blocked
+    Sleeping,    // sleeping for some time
+    Exited,      // finished, waiting to be reaped
 }
 
 impl ThreadState {
     fn as_u8(self) -> u8 {
         match self {
             ThreadState::Created => 0,
-            ThreadState::Ready  => 1,
+            ThreadState::Ready => 1,
             ThreadState::Running => 2,
-            ThreadState::PreBlocking  => 3,
-            ThreadState::Blocked   => 4,
-            ThreadState::Sleeping   => 5,
-            ThreadState::Exited   => 6,
+            ThreadState::PreBlocking => 3,
+            ThreadState::Blocked => 4,
+            ThreadState::Sleeping => 5,
+            ThreadState::Exited => 6,
         }
     }
 
