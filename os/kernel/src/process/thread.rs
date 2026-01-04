@@ -31,7 +31,7 @@
    ║  'MAIN_USER_STACK_START'. The next stack for the next user stack is     ║
    ║  allocated at 'MAIN_USER_STACK_START' + 'MAX_USER_STACK_SIZE' and so on.║
    ╟─────────────────────────────────────────────────────────────────────────╢
-   ║ Author: Fabian Ruhland & Michael Schoettner, 28.12.2025, HHU            ║
+   ║ Author: Fabian Ruhland & Michael Schoettner, 04.01.2026, HHU            ║
    ╚═════════════════════════════════════════════════════════════════════════╝
 */
 
@@ -157,9 +157,8 @@ impl Thread {
         let current_process = process_manager().read().current_process();
         let new_process = process_manager().write().create_process();
         let pid = new_process.id();
-        let tid = scheduler::next_thread_id();
 
-        info!("load_application: pid = {pid}, tid = {tid}, name = {name}",);
+        info!("load_application: pid = {pid}, name = {name}");
 
         // parse elf file headers and map and copy code if successful
         let entry = Thread::parse_and_map_elf_bin(&current_process, &new_process, elf_buffer, name)?;
