@@ -47,25 +47,8 @@ struct UdpSenderWorkItem {
 
 struct UdpReceiverWorkItem {
     stats: Arc<Stats>,
-    socket: Arc<UdpSocket>,
+    socket: UdpSocket,
     start_flag: Arc<AtomicBool>,
-}
-
-#[unsafe(no_mangle)]
-pub fn main() {
-    let cli = Cli::parse();
-
-    if let Err(message) = cli {
-        println!("{}", message);
-        return;
-    }
-
-    let cli = cli.unwrap();
-
-    match cli.mode {
-        Mode::Server => start_server(cli),
-        Mode::Client => start_client(cli),
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -103,6 +86,23 @@ impl Results {
             summary: stats.finalize_and_get_summary(),
             json: stats.stats_as_json(),
         }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub fn main() {
+    let cli = Cli::parse();
+
+    if let Err(message) = cli {
+        println!("{}", message);
+        return;
+    }
+
+    let cli = cli.unwrap();
+
+    match cli.mode {
+        Mode::Server => start_server(cli),
+        Mode::Client => start_client(cli),
     }
 }
 
@@ -378,15 +378,19 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
 
     match role {
         Role::Sender => {
-            let remote_addr = coordinator.remote_addr();
+            let remote_ip = coordinator.remote_addr().ip();
+            let remote_base_port = coordinator.remote_addr().port();
 
-            for _ in 0..config.parallel_streams {
+            for i in 0..config.parallel_streams {
                 let socket = UdpSocket::bind(local_addr).expect("failed to bind udp socket");
+
+                // Match the port incrementing logic used by the receiver so that each sender targets a unique receiver port
+                let target_addr = SocketAddr::new(remote_ip, remote_base_port + i as u16);
 
                 UDP_SENDER_WORK_QUEUE.lock().push_back(UdpSenderWorkItem {
                     stats: Arc::clone(&stats),
                     socket,
-                    remote_addr,
+                    remote_addr: target_addr,
                     start_flag: Arc::clone(&start_flag),
                 });
 
@@ -398,12 +402,19 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
             coordinator.wait_for_start_benchmark();
         }
         Role::Receiver => {
-            let socket = Arc::new(UdpSocket::bind(local_addr).expect("failed to bind udp socket"));
+            let base_port = local_addr.port();
+            let ip = local_addr.ip();
 
-            for _ in 0..config.parallel_streams {
+            for i in 0..config.parallel_streams {
+                // Increment port as you cannot reuse the same port for many UDP sockets
+                let thread_port = base_port + i as u16;
+                let thread_addr = SocketAddr::new(ip, thread_port);
+
+                let socket = UdpSocket::bind(thread_addr).expect("failed to bind unique udp port");
+
                 UDP_RECEIVER_WORK_QUEUE.lock().push_back(UdpReceiverWorkItem {
                     stats: Arc::clone(&stats),
-                    socket: Arc::clone(&socket),
+                    socket,
                     start_flag: Arc::clone(&start_flag),
                 });
 
@@ -428,7 +439,7 @@ fn udp_receiver_thread_entry() {
     work_item.stats.register_thread(thread_id);
 
     wait_for_start(&work_item.start_flag);
-    udp_receiver_loop(&work_item.stats, &work_item.socket, thread_id);
+    udp_receiver_loop(&work_item.stats, work_item.socket, thread_id);
 }
 
 fn udp_sender_thread_entry() {
@@ -441,13 +452,13 @@ fn udp_sender_thread_entry() {
 }
 
 fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
-    let socket = Arc::new(UdpSocket::bind(local_addr).expect("failed to open socket"));
+    let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
     let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, Role::Receiver));
     let thread_id = current_thread_id();
     stats.register_thread(thread_id);
     println!("{}", stats.get_header());
 
-    udp_receiver_loop(&stats, &socket, thread_id);
+    udp_receiver_loop(&stats, socket, thread_id);
 
     Results::new(&stats)
 }
@@ -464,7 +475,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
     Results::new(&stats)
 }
 
-fn udp_receiver_loop(stats: &Arc<Stats>, socket: &Arc<UdpSocket>, thread_id: usize) {
+fn udp_receiver_loop(stats: &Arc<Stats>, socket: UdpSocket, thread_id: usize) {
     let mut buf = vec![0; UDP_RECV_BUFFER_SIZE];
 
     while !stats.has_total_time_elapsed() {

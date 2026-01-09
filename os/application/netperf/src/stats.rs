@@ -239,15 +239,19 @@ impl ReportInterval {
     /// Finalize any pending partial interval and advance the last_report_time.
     fn finalize_pending_interval(&mut self) -> Option<IntervalInfo> {
         let current_time = self.clamp_now_to_end();
+
         if current_time <= self.last_report_time {
             return None;
         }
+
         let elapsed = current_time - self.last_report_time;
+
         let info = IntervalInfo {
             elapsed_seconds: elapsed.as_seconds_f64(),
             interval_start_s: (self.last_report_time - self.start_time).as_seconds_f64(),
             interval_end_s: (current_time - self.start_time).as_seconds_f64(),
         };
+
         self.last_report_time = current_time;
         Some(info)
     }
@@ -788,16 +792,12 @@ impl Stats {
 
     fn build_summary(&self, trackers: &mut BTreeMap<usize, StatsTracker>, total_duration_s: f64) -> String {
         let mut lines = Vec::new();
-        let mut sum_tracker = self.sum_tracker.lock();
-
-        if let Some(tracker) = sum_tracker.as_mut() {
-            lines.push(tracker.get_header());
-        }
 
         for (_, tracker) in trackers.iter_mut() {
             lines.push(tracker.build_summary(total_duration_s));
         }
 
+        let mut sum_tracker = self.sum_tracker.lock();
         if let Some(tracker) = sum_tracker.as_mut() {
             lines.push(tracker.build_summary(total_duration_s));
         }

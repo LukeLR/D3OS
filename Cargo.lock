@@ -935,13 +935,11 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "concurrent",
- "log",
  "network",
  "postcard",
  "runtime",
  "serde",
  "spin 0.10.0",
- "syscall",
  "terminal",
  "time",
 ]

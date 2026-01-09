@@ -35,17 +35,6 @@ impl Client {
             _ => panic!("expected results from server"),
         }
     }
-
-    pub fn wait_for_ready(&self) {
-        match recv_msg(&self.control_channel) {
-            ControlMsg::Ready => {}
-            _ => panic!("expected ready signal from server"),
-        }
-    }
-
-    pub fn signal_ready(&self) {
-        send_msg(&self.control_channel, &ControlMsg::Ready);
-    }
 }
 
 impl Coordinator for Client {

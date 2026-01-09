@@ -42,17 +42,6 @@ impl Server {
     pub fn send_results(&self, results: Results) {
         send_msg(&self.control_channel, &ControlMsg::Results(results.summary, results.json));
     }
-
-    pub fn signal_ready(&self) {
-        send_msg(&self.control_channel, &ControlMsg::Ready);
-    }
-
-    pub fn wait_for_ready(&self) {
-        match recv_msg(&self.control_channel) {
-            ControlMsg::Ready => {}
-            _ => panic!("expected ready signal from client"),
-        }
-    }
 }
 
 impl Coordinator for Server {

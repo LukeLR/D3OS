@@ -97,6 +97,17 @@ pub trait Coordinator {
         self.send(&ControlMsg::StreamReady(stream_id));
     }
 
+    fn wait_for_ready(&self) {
+        match self.recv() {
+            ControlMsg::Ready => {}
+            _ => panic!("expected ready signal"),
+        }
+    }
+
+    fn signal_ready(&self) {
+        self.send(&ControlMsg::Ready);
+    }
+
     fn signal_start_benchmark(&self) {
         self.send(&ControlMsg::StartBenchmark);
     }
