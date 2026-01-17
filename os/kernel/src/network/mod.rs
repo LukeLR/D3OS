@@ -307,13 +307,11 @@ pub fn accept_tcp(handle: SocketHandle) -> Result<IpEndpoint, tcp::ConnectError>
         {
             get_socket_for_current_process!(socket, handle, tcp::Socket);
             if socket.is_active() {
-                break;
+                return Ok(socket.remote_endpoint().unwrap())
             }
         }
         scheduler().sleep(100);
     }
-    get_socket_for_current_process!(socket, handle, tcp::Socket);
-    Ok(socket.remote_endpoint().unwrap())
 }
 
 pub fn connect_tcp(handle: SocketHandle, host: IpAddress, port: u16) -> Result<IpEndpoint, tcp::ConnectError> {    get_socket_for_current_process!(socket, handle, tcp::Socket);

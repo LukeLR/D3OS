@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use chrono::TimeDelta;
 use spin::Mutex;
 use terminal::println;
-
+use crate::cli::Protocol;
 use crate::Role;
 
 const BITS_PER_BYTE: f64 = 8.0;
@@ -652,7 +652,7 @@ pub struct Stats {
     interval: Mutex<ReportInterval>,
     trackers: Mutex<BTreeMap<usize, StatsTracker>>,
     sum_tracker: Mutex<Option<StatsTracker>>,
-    protocol_is_udp: bool,
+    protocol: Protocol,
     role: Role,
 }
 
@@ -662,7 +662,7 @@ impl Stats {
             interval: Mutex::new(ReportInterval::new(interval_seconds, total_time_seconds)),
             trackers: Mutex::new(BTreeMap::new()),
             sum_tracker: Mutex::new(None),
-            protocol_is_udp: false,
+            protocol: Protocol::Tcp,
             role: Role::Sender,
         }
     }
@@ -672,7 +672,7 @@ impl Stats {
             interval: Mutex::new(ReportInterval::new(interval_seconds, total_time_seconds)),
             trackers: Mutex::new(BTreeMap::new()),
             sum_tracker: Mutex::new(None),
-            protocol_is_udp: true,
+            protocol: Protocol::Udp,
             role,
         }
     }
@@ -685,11 +685,9 @@ impl Stats {
             Box::new(BitrateColumn::new()),
         ];
 
-        if self.protocol_is_udp {
-            if let Role::Receiver = self.role {
-                columns.push(Box::new(UdpLossColumn::new()));
-                columns.push(Box::new(UdpJitterColumn::new()));
-            }
+        if let (Protocol::Udp, Role::Receiver) = (self.protocol, self.role) {
+            columns.push(Box::new(UdpLossColumn::new()));
+            columns.push(Box::new(UdpJitterColumn::new()));
         }
 
         StatsTracker::new(columns)
