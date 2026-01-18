@@ -19,6 +19,7 @@ pub struct Cli {
     pub transfer_bytes: Option<u64>,
     pub json_output: bool,
     pub parallel_streams: u32,
+    pub bandwidth: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
@@ -72,6 +73,7 @@ impl Cli {
             transfer_bytes: None,
             json_output: false,
             parallel_streams: 1,
+            bandwidth: None,
         };
 
         loop {
@@ -98,7 +100,11 @@ impl Cli {
                 }
                 Some("-n") => {
                     let val = Self::parse_next(&mut args, "-n")?;
-                    cli.transfer_bytes = Some(Self::parse_bytes(&val).map_err(|e| format!("Option -n: {}", e))?);
+                    cli.transfer_bytes = Some(Self::parse_value(&val, 1024).map_err(|e| format!("Option -n: {}", e))?);
+                }
+                Some("--json") => {
+                    args.next();
+                    cli.json_output = true;
                 }
                 Some("-P") => {
                     let val = Self::parse_next(&mut args, "-P")?;
@@ -108,9 +114,10 @@ impl Cli {
                     }
                     cli.parallel_streams = streams;
                 }
-                Some("--json") => {
-                    args.next();
-                    cli.json_output = true;
+                Some("-b") => {
+                    let val = Self::parse_next(&mut args, "-b")?;
+                    // Bandwidth uses Base 10 (1M = 1,000,000 bits/sec)
+                    cli.bandwidth = Some(Self::parse_value(&val, 1000).map_err(|e| format!("Option -b: {}", e))?);
                 }
                 Some(_) => return Err("Usage: netperf [-s|-c host] [options]".to_string()),
                 None => break,
@@ -129,7 +136,7 @@ impl Cli {
         args.next().ok_or_else(|| format!("Missing value for option {}", option_name))
     }
 
-    fn parse_bytes(input: &str) -> Result<u64, String> {
+    fn parse_value(input: &str, base: u64) -> Result<u64, String> {
         let input = input.trim();
         if input.is_empty() {
             return Err("Empty input".to_string());
@@ -142,18 +149,17 @@ impl Cli {
             // Split the number from the suffix
             let (num_str, _) = input.split_at(input.len() - last_char.len_utf8());
 
-            // Determine multiplier (Base 2 for Volume)
-            let mult = match last_char.to_ascii_uppercase() {
-                'K' => 1024,
-                'M' => 1024_u64.pow(2),
-                'G' => 1024_u64.pow(3),
-                'T' => 1024_u64.pow(4),
+            // Determine exponent based on suffix
+            let exponent = match last_char.to_ascii_uppercase() {
+                'K' => 1,
+                'M' => 2,
+                'G' => 3,
+                'T' => 4,
                 _ => return Err(format!("Unknown suffix: {}", last_char)),
             };
 
-            (num_str, mult)
+            (num_str, base.pow(exponent))
         } else {
-            // No suffix, treat as raw bytes
             (input, 1)
         };
 

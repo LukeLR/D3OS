@@ -37,6 +37,7 @@ struct TcpWorkItem {
     stats: Arc<Stats>,
     socket: TcpStream,
     start_flag: Arc<AtomicBool>,
+    bandwidth: Option<u64>,
 }
 
 struct UdpSenderWorkItem {
@@ -44,6 +45,7 @@ struct UdpSenderWorkItem {
     socket: UdpSocket,
     remote_addr: SocketAddr,
     start_flag: Arc<AtomicBool>,
+    bandwidth: Option<u64>,
 }
 
 struct UdpReceiverWorkItem {
@@ -86,6 +88,48 @@ impl Results {
         Self {
             summary: stats.finalize_and_get_summary(),
             json: stats.as_json(),
+        }
+    }
+}
+
+const MIN_SLEEP_MS: usize = 6;
+
+struct Pacer {
+    start_time: f64,
+    bytes_sent: u64,
+    rate_bps: u64,
+}
+
+impl Pacer {
+    fn new(rate_bps: u64) -> Self {
+        Self {
+            start_time: time::systime().as_seconds_f64(),
+            bytes_sent: 0,
+            rate_bps,
+        }
+    }
+
+    fn block_if_needed(&mut self, new_bytes: usize) {
+        self.bytes_sent += new_bytes as u64;
+
+        // Calculate how much time *should* have passed to send this amount of data
+        let target_duration = (self.bytes_sent * 8) as f64 / self.rate_bps as f64;
+        let now = time::systime().as_seconds_f64();
+        let current_duration = now - self.start_time;
+
+        if current_duration < target_duration {
+            // We are too fast (ahead of schedule). Sleep to slow down.
+            let sleep_seconds = target_duration - current_duration;
+            let sleep_ms = (sleep_seconds * 1000.0) as usize;
+
+            if sleep_ms >= MIN_SLEEP_MS {
+                thread::sleep(sleep_ms);
+            }
+        } else {
+            // We are too slow (behind schedule)
+            // If we don't adjust, we will burst later to catch up.
+            // Fix: Reset the baseline. We enforce the limit from the current moment forward.
+            self.start_time = now - target_duration;
         }
     }
 }
@@ -217,7 +261,7 @@ fn run_tcp_single(role: Role, socket: TcpStream, config: Cli) -> Results {
     println!("{}", stats.get_header());
 
     match role {
-        Role::Sender => tcp_sender_loop(&stats, stream_stats, socket),
+        Role::Sender => tcp_sender_loop(&stats, stream_stats, socket, config.bandwidth),
         Role::Receiver => tcp_receiver_loop(&stats, stream_stats, socket),
     }
 
@@ -241,6 +285,7 @@ fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
             stats: Arc::clone(&stats),
             socket,
             start_flag: Arc::clone(&start_flag),
+            bandwidth: config.bandwidth,
         });
 
         if let Some(t) = thread::create(tcp_thread_entry) {
@@ -291,7 +336,7 @@ fn tcp_thread_entry() {
     wait_for_start(&work_item.start_flag);
 
     match work_item.role {
-        Role::Sender => tcp_sender_loop(&work_item.stats, stream_stats, work_item.socket),
+        Role::Sender => tcp_sender_loop(&work_item.stats, stream_stats, work_item.socket, work_item.bandwidth),
         Role::Receiver => tcp_receiver_loop(&work_item.stats, stream_stats, work_item.socket),
     }
 }
@@ -321,13 +366,21 @@ fn tcp_receiver_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: TcpS
     }
 }
 
-fn tcp_sender_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: TcpStream) {
+fn tcp_sender_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: TcpStream, bandwidth: Option<u64>) {
     let message = vec![0; TCP_SEND_MESSAGE_SIZE];
+    let mut pacer = bandwidth.map(|b| Pacer::new(b));
 
     while !stats.is_finished() {
         if let Ok(true) = socket.can_send() {
             match socket.write(&message) {
-                Ok(len) => stream_stats.track(len, &[]),
+                Ok(len) => {
+                    // Check if we need to throttle to reach the bandwidth limit
+                    if let Some(p) = &mut pacer {
+                        p.block_if_needed(len);
+                    }
+
+                    stream_stats.track(len, &[])
+                },
                 Err(err) => {
                     if !handle_network_error(err, "send message") {
                         break;
@@ -386,6 +439,7 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
                     socket,
                     remote_addr: target_addr,
                     start_flag: Arc::clone(&start_flag),
+                    bandwidth: config.bandwidth,
                 });
 
                 if let Some(t) = thread::create(udp_sender_thread_entry) {
@@ -440,7 +494,7 @@ fn udp_sender_thread_entry() {
     let stream_stats = work_item.stats.register_thread(current_thread_id());
 
     wait_for_start(&work_item.start_flag);
-    udp_sender_loop(&work_item.stats, stream_stats, work_item.socket, work_item.remote_addr);
+    udp_sender_loop(&work_item.stats, stream_stats, work_item.socket, work_item.remote_addr, work_item.bandwidth);
 }
 
 fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
@@ -460,7 +514,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
     let stream_stats = stats.register_thread(current_thread_id());
     println!("{}", stats.get_header());
 
-    udp_sender_loop(&stats, stream_stats, socket, remote_addr);
+    udp_sender_loop(&stats, stream_stats, socket, remote_addr, config.bandwidth);
 
     Results::new(&stats)
 }
@@ -490,9 +544,11 @@ fn udp_receiver_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: UdpS
     }
 }
 
-fn udp_sender_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: UdpSocket, remote_addr: SocketAddr) {
+fn udp_sender_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: UdpSocket, remote_addr: SocketAddr, bandwidth: Option<u64>) {
     let mut message = vec![0; UDP_SEND_MESSAGE_SIZE];
     let mut seq_num: u64 = 0;
+
+    let mut pacer = bandwidth.map(|b| Pacer::new(b));
 
     while !stats.is_finished() {
         if let Ok(true) = socket.can_send() {
@@ -501,6 +557,10 @@ fn udp_sender_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: UdpSoc
 
             match socket.send_to(&message, remote_addr) {
                 Ok(len) => {
+                    if let Some(p) = &mut pacer {
+                        p.block_if_needed(len);
+                    }
+
                     stream_stats.track(len, &[]);
                     seq_num += 1;
                 }
