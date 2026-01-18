@@ -25,8 +25,9 @@ use server::Server;
 use spin::Mutex;
 use stats::Stats;
 use terminal::println;
+use crate::stats::StreamStats;
 
-// Static work queues for passing data to threads (since thread::create only takes fn())
+// Static work queues for passing data to threads
 static TCP_WORK_QUEUE: Mutex<VecDeque<TcpWorkItem>> = Mutex::new(VecDeque::new());
 static UDP_SENDER_WORK_QUEUE: Mutex<VecDeque<UdpSenderWorkItem>> = Mutex::new(VecDeque::new());
 static UDP_RECEIVER_WORK_QUEUE: Mutex<VecDeque<UdpReceiverWorkItem>> = Mutex::new(VecDeque::new());
@@ -84,7 +85,7 @@ impl Results {
     fn new(stats: &Arc<Stats>) -> Self {
         Self {
             summary: stats.finalize_and_get_summary(),
-            json: stats.stats_as_json(),
+            json: stats.as_json(),
         }
     }
 }
@@ -149,7 +150,6 @@ fn start_server(config: Cli) {
             }
         };
 
-        println!("- - - - - - - - - - - - - - - - - - - - - - -");
         println!("{}:", role);
         println!("{}", results.summary);
 
@@ -198,7 +198,6 @@ fn start_client(config: Cli) {
         }
     };
 
-    println!("- - - - - - - - - - - - - - - - - - - - - - - -");
     println!("{}:", role);
     println!("{}", results.summary);
 
@@ -213,21 +212,20 @@ fn start_client(config: Cli) {
 }
 
 fn run_tcp_single(role: Role, socket: TcpStream, config: Cli) -> Results {
-    let stats = Arc::new(Stats::tcp(config.interval_seconds, config.duration_seconds));
-    let thread_id = thread::current().map(|t| t.id()).unwrap_or(0);
-    stats.register_thread(thread_id);
+    let stats = Arc::new(Stats::tcp(config.interval_seconds, config.duration_seconds, config.transfer_bytes));
+    let stream_stats = stats.register_thread(current_thread_id());
     println!("{}", stats.get_header());
 
     match role {
-        Role::Sender => tcp_sender_loop(&stats, socket, thread_id),
-        Role::Receiver => tcp_receiver_loop(&stats, socket, thread_id),
+        Role::Sender => tcp_sender_loop(&stats, stream_stats, socket),
+        Role::Receiver => tcp_receiver_loop(&stats, stream_stats, socket),
     }
 
     Results::new(&stats)
 }
 
 fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, local_addr: SocketAddr) -> Results {
-    let stats = Arc::new(Stats::tcp(config.interval_seconds, config.duration_seconds));
+    let stats = Arc::new(Stats::tcp(config.interval_seconds, config.duration_seconds, config.transfer_bytes));
     let start_flag = Arc::new(AtomicBool::new(false));
     let threads = Arc::new(Mutex::new(Vec::new()));
 
@@ -288,29 +286,25 @@ fn accept_tcp_streams<C: Coordinator>(coordinator: &C, config: Cli, local_addr: 
 
 fn tcp_thread_entry() {
     let work_item = TCP_WORK_QUEUE.lock().pop_front().expect("no tcp work item");
-    let thread_id = current_thread_id();
-    work_item.stats.register_thread(thread_id);
+    let stream_stats = work_item.stats.register_thread(current_thread_id());
 
     wait_for_start(&work_item.start_flag);
-    let role = work_item.role;
-    let stats = &work_item.stats;
-    let socket = work_item.socket;
 
-    match role {
-        Role::Sender => tcp_sender_loop(stats, socket, thread_id),
-        Role::Receiver => tcp_receiver_loop(stats, socket, thread_id),
+    match work_item.role {
+        Role::Sender => tcp_sender_loop(&work_item.stats, stream_stats, work_item.socket),
+        Role::Receiver => tcp_receiver_loop(&work_item.stats, stream_stats, work_item.socket),
     }
 }
 
-fn tcp_receiver_loop(stats: &Arc<Stats>, socket: TcpStream, thread_id: usize) {
+fn tcp_receiver_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: TcpStream) {
     let mut buf = vec![0; TCP_RECV_BUFFER_SIZE];
 
-    while !stats.has_total_time_elapsed() {
+    while !stats.is_finished() {
         if let Ok(true) = socket.can_recv() {
             match socket.read(&mut buf) {
                 Ok(len) => {
                     if len > 0 {
-                        stats.track(thread_id, len, &buf);
+                        stream_stats.track(len, &buf);
                     }
                 }
                 Err(err) => {
@@ -323,17 +317,17 @@ fn tcp_receiver_loop(stats: &Arc<Stats>, socket: TcpStream, thread_id: usize) {
             thread::sleep(30);
         }
 
-        stats.print_interval_info();
+        stats.print_interval_report();
     }
 }
 
-fn tcp_sender_loop(stats: &Arc<Stats>, socket: TcpStream, thread_id: usize) {
+fn tcp_sender_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: TcpStream) {
     let message = vec![0; TCP_SEND_MESSAGE_SIZE];
 
-    while !stats.has_total_time_elapsed() {
+    while !stats.is_finished() {
         if let Ok(true) = socket.can_send() {
             match socket.write(&message) {
-                Ok(len) => stats.track(thread_id, len, &[]),
+                Ok(len) => stream_stats.track(len, &[]),
                 Err(err) => {
                     if !handle_network_error(err, "send message") {
                         break;
@@ -344,7 +338,7 @@ fn tcp_sender_loop(stats: &Arc<Stats>, socket: TcpStream, thread_id: usize) {
             thread::sleep(30)
         }
 
-        stats.print_interval_info();
+        stats.print_interval_report();
     }
 }
 
@@ -372,7 +366,7 @@ fn run_udp(role: Role, local_addr: SocketAddr, remote: Option<SocketAddr>, confi
 }
 
 fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, local_addr: SocketAddr) -> Results {
-    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, role));
+    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, role, config.transfer_bytes));
     let start_flag = Arc::new(AtomicBool::new(false));
     let threads = Arc::new(Mutex::new(Vec::new()));
 
@@ -435,55 +429,51 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
 
 fn udp_receiver_thread_entry() {
     let work_item = UDP_RECEIVER_WORK_QUEUE.lock().pop_front().expect("no udp receiver work item");
-    let thread_id = current_thread_id();
-    work_item.stats.register_thread(thread_id);
+    let stream_stats = work_item.stats.register_thread(current_thread_id());
 
     wait_for_start(&work_item.start_flag);
-    udp_receiver_loop(&work_item.stats, work_item.socket, thread_id);
+    udp_receiver_loop(&work_item.stats, stream_stats, work_item.socket);
 }
 
 fn udp_sender_thread_entry() {
     let work_item = UDP_SENDER_WORK_QUEUE.lock().pop_front().expect("no udp sender work item");
-    let thread_id = current_thread_id();
-    work_item.stats.register_thread(thread_id);
+    let stream_stats = work_item.stats.register_thread(current_thread_id());
 
     wait_for_start(&work_item.start_flag);
-    udp_sender_loop(&work_item.stats, work_item.socket, work_item.remote_addr, thread_id);
+    udp_sender_loop(&work_item.stats, stream_stats, work_item.socket, work_item.remote_addr);
 }
 
 fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
     let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
-    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, Role::Receiver));
-    let thread_id = current_thread_id();
-    stats.register_thread(thread_id);
+    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, Role::Receiver, config.transfer_bytes));
+    let stream_stats = stats.register_thread(current_thread_id());
     println!("{}", stats.get_header());
 
-    udp_receiver_loop(&stats, socket, thread_id);
+    udp_receiver_loop(&stats, stream_stats, socket);
 
     Results::new(&stats)
 }
 
 fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli) -> Results {
     let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
-    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, Role::Sender));
-    let thread_id = current_thread_id();
-    stats.register_thread(thread_id);
+    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, Role::Sender, config.transfer_bytes));
+    let stream_stats = stats.register_thread(current_thread_id());
     println!("{}", stats.get_header());
 
-    udp_sender_loop(&stats, socket, remote_addr, thread_id);
+    udp_sender_loop(&stats, stream_stats, socket, remote_addr);
 
     Results::new(&stats)
 }
 
-fn udp_receiver_loop(stats: &Arc<Stats>, socket: UdpSocket, thread_id: usize) {
+fn udp_receiver_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: UdpSocket) {
     let mut buf = vec![0; UDP_RECV_BUFFER_SIZE];
 
-    while !stats.has_total_time_elapsed() {
+    while !stats.is_finished() {
         if let Ok(true) = socket.can_recv() {
             match socket.recv_from(&mut buf) {
                 Ok((len, _addr)) => {
                     if len > 0 {
-                        stats.track(thread_id, len, &buf);
+                        stream_stats.track(len, &buf);
                     }
                 }
                 Err(err) => {
@@ -496,22 +486,22 @@ fn udp_receiver_loop(stats: &Arc<Stats>, socket: UdpSocket, thread_id: usize) {
             thread::sleep(30)
         }
 
-        stats.print_interval_info();
+        stats.print_interval_report();
     }
 }
 
-fn udp_sender_loop(stats: &Arc<Stats>, socket: UdpSocket, remote_addr: SocketAddr, thread_id: usize) {
+fn udp_sender_loop(stats: &Arc<Stats>, stream_stats: StreamStats, socket: UdpSocket, remote_addr: SocketAddr) {
     let mut message = vec![0; UDP_SEND_MESSAGE_SIZE];
     let mut seq_num: u64 = 0;
 
-    while !stats.has_total_time_elapsed() {
+    while !stats.is_finished() {
         if let Ok(true) = socket.can_send() {
             message[..8].copy_from_slice(&seq_num.to_le_bytes());
             message[8..16].copy_from_slice(&time::systime().as_seconds_f64().to_le_bytes());
 
             match socket.send_to(&message, remote_addr) {
                 Ok(len) => {
-                    stats.track(thread_id, len, &[]);
+                    stream_stats.track(len, &[]);
                     seq_num += 1;
                 }
                 Err(err) => {
@@ -524,7 +514,7 @@ fn udp_sender_loop(stats: &Arc<Stats>, socket: UdpSocket, remote_addr: SocketAdd
             thread::sleep(30)
         }
 
-        stats.print_interval_info();
+        stats.print_interval_report();
     }
 }
 
