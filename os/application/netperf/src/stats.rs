@@ -10,7 +10,6 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::{format, vec};
 use chrono::TimeDelta;
-use core::cmp::min;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 use terminal::println;
@@ -120,16 +119,18 @@ struct ReportRow {
     raw_metrics: Vec<Metric>,
 }
 
-struct StatsTracker {
+pub struct StatsTracker {
     columns: Vec<Box<dyn Column + Send>>,
+    global_transferred: Arc<AtomicU64>,
     interval_json_data: Vec<String>,
     final_json_data: Option<String>,
 }
 
 impl StatsTracker {
-    fn new(columns: Vec<Box<dyn Column + Send>>) -> Self {
+    fn new(columns: Vec<Box<dyn Column + Send>>, global_transferred: Arc<AtomicU64>) -> Self {
         Self {
             columns,
+            global_transferred,
             interval_json_data: Vec::new(),
             final_json_data: None,
         }
@@ -146,7 +147,9 @@ impl StatsTracker {
         line
     }
 
-    fn update(&mut self, bytes: usize, buf: &[u8]) {
+    pub fn update(&mut self, bytes: usize, buf: &[u8]) {
+        self.global_transferred.fetch_add(bytes as u64, Ordering::Relaxed);
+
         for c in &mut self.columns {
             c.update(bytes, buf);
         }
@@ -231,18 +234,16 @@ struct ReportInterval {
     report_interval: TimeDelta,
     total_duration: TimeDelta,
     last_report_time: TimeDelta,
-    stop_on_timer: bool,
 }
 
 impl ReportInterval {
-    fn new(interval_seconds: u32, total_time_seconds: u32, stop_on_timer: bool) -> Self {
+    fn new(interval_seconds: u32, total_time_seconds: u32) -> Self {
         let now = time::systime();
         Self {
             start_time: now,
             report_interval: TimeDelta::seconds(interval_seconds as i64),
             total_duration: TimeDelta::seconds(total_time_seconds as i64),
             last_report_time: now,
-            stop_on_timer,
         }
     }
 
@@ -271,26 +272,21 @@ impl ReportInterval {
     }
 
     fn finalize_pending_interval(&mut self) -> Option<IntervalInfo> {
-        let expected_end_time = self.start_time + self.total_duration;
-        let mut interval_end_time = time::systime();
+        let current_time = time::systime();
 
-        if self.stop_on_timer {
-            interval_end_time = min(interval_end_time, expected_end_time);
-        }
-
-        if interval_end_time <= self.last_report_time {
+        if current_time <= self.last_report_time {
             return None;
         }
 
-        let elapsed = interval_end_time - self.last_report_time;
+        let elapsed = current_time - self.last_report_time;
 
         let info = IntervalInfo {
             elapsed_seconds: elapsed.as_seconds_f64(),
             interval_start_s: (self.last_report_time - self.start_time).as_seconds_f64(),
-            interval_end_s: (interval_end_time - self.start_time).as_seconds_f64(),
+            interval_end_s: (current_time - self.start_time).as_seconds_f64(),
         };
 
-        self.last_report_time = interval_end_time;
+        self.last_report_time = current_time;
         Some(info)
     }
 
@@ -664,21 +660,6 @@ impl UdpJitterTracker {
     }
 }
 
-/// Handle returned to the worker thread to record stats without map lookups.
-pub struct StreamStats {
-    tracker: Arc<Mutex<StatsTracker>>,
-    global_bytes: Arc<AtomicU64>,
-}
-
-impl StreamStats {
-    pub fn track(&self, bytes: usize, buf: &[u8]) {
-        self.global_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
-
-        let mut t = self.tracker.lock();
-        t.update(bytes, buf);
-    }
-}
-
 pub struct Stats {
     interval: Mutex<ReportInterval>,
     trackers: Mutex<BTreeMap<usize, Arc<Mutex<StatsTracker>>>>,
@@ -691,7 +672,7 @@ pub struct Stats {
 impl Stats {
     pub fn new(protocol: Protocol, role: Role, interval_seconds: u32, total_time_seconds: u32, limit_bytes: Option<u64>) -> Self {
         Self {
-            interval: Mutex::new(ReportInterval::new(interval_seconds, total_time_seconds, limit_bytes.is_some())),
+            interval: Mutex::new(ReportInterval::new(interval_seconds, total_time_seconds)),
             trackers: Mutex::new(BTreeMap::new()),
             global_transferred: Arc::new(AtomicU64::new(0)),
             limit_bytes,
@@ -721,22 +702,17 @@ impl Stats {
             columns.push(Box::new(UdpJitterColumn::new()));
         }
 
-        StatsTracker::new(columns)
+        StatsTracker::new(columns, self.global_transferred.clone())
     }
 
-    /// Registers a thread and returns a handle to track its stats
-    pub fn register_thread(&self, thread_id: usize) -> StreamStats {
+    /// Registers a thread and returns its tracker
+    pub fn register_thread(&self, thread_id: usize) -> Arc<Mutex<StatsTracker>> {
         let mut trackers = self.trackers.lock();
 
-        let tracker = trackers
+        trackers
             .entry(thread_id)
             .or_insert_with(|| Arc::new(Mutex::new(self.create_tracker(thread_id))))
-            .clone();
-
-        StreamStats {
-            tracker,
-            global_bytes: self.global_transferred.clone(),
-        }
+            .clone()
     }
 
     /// Checks if the benchmark is finished based on transferred bytes if used, otherwise time.

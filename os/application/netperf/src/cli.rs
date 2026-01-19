@@ -16,9 +16,9 @@ pub struct Cli {
     pub reverse: bool,
     pub interval_seconds: u32,
     pub duration_seconds: u32,
-    pub transfer_bytes: Option<u64>,
     pub json_output: bool,
     pub parallel_streams: u32,
+    pub transfer_bytes: Option<u64>,
     pub bandwidth: Option<u64>,
 }
 
@@ -70,9 +70,9 @@ impl Cli {
             reverse: false,
             interval_seconds: 1,
             duration_seconds: 10,
-            transfer_bytes: None,
             json_output: false,
             parallel_streams: 1,
+            transfer_bytes: None,
             bandwidth: None,
         };
 
@@ -98,10 +98,6 @@ impl Cli {
                     let val = Self::parse_next(&mut args, "-t")?;
                     cli.duration_seconds = val.parse().map_err(|_| "Invalid duration")?;
                 }
-                Some("-n") => {
-                    let val = Self::parse_next(&mut args, "-n")?;
-                    cli.transfer_bytes = Some(Self::parse_value(&val, 1024).map_err(|e| format!("Option -n: {}", e))?);
-                }
                 Some("--json") => {
                     args.next();
                     cli.json_output = true;
@@ -113,6 +109,10 @@ impl Cli {
                         return Err("Parallel streams must be >= 1".to_string());
                     }
                     cli.parallel_streams = streams;
+                }
+                Some("-n") => {
+                    let val = Self::parse_next(&mut args, "-n")?;
+                    cli.transfer_bytes = Some(Self::parse_value(&val, 1024).map_err(|e| format!("Option -n: {}", e))?);
                 }
                 Some("-b") => {
                     let val = Self::parse_next(&mut args, "-b")?;
