@@ -84,7 +84,7 @@ struct Results {
 }
 
 impl Results {
-    fn new(stats: &Arc<Stats>) -> Self {
+    fn new(stats: &Stats) -> Self {
         Self {
             summary: stats.finalize_and_get_summary(),
             json: stats.as_json(),
@@ -256,7 +256,7 @@ fn start_client(config: Cli) {
 }
 
 fn run_tcp_single(role: Role, socket: TcpStream, config: Cli) -> Results {
-    let stats = Arc::new(Stats::tcp(config.interval_seconds, config.duration_seconds, config.transfer_bytes));
+    let stats = Stats::tcp(config.interval_seconds, config.duration_seconds, config.transfer_bytes);
     let tracker = stats.register_thread(current_thread_id());
     println!("{}", stats.get_header());
 
@@ -271,7 +271,7 @@ fn run_tcp_single(role: Role, socket: TcpStream, config: Cli) -> Results {
 fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, local_addr: SocketAddr) -> Results {
     let stats = Arc::new(Stats::tcp(config.interval_seconds, config.duration_seconds, config.transfer_bytes));
     let start_flag = Arc::new(AtomicBool::new(false));
-    let threads = Arc::new(Mutex::new(Vec::new()));
+    let mut threads = Vec::new();
 
     let sockets = if coordinator.is_server() {
         accept_tcp_streams(coordinator, config, local_addr)
@@ -289,7 +289,7 @@ fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
         });
 
         if let Some(t) = thread::create(tcp_thread_entry) {
-            threads.lock().push(t);
+            threads.push(t);
         }
     }
 
@@ -299,7 +299,7 @@ fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
     }
 
     start_flag.store(true, Ordering::Release);
-    join_threads(&threads);
+    join_threads(threads);
 
     Results::new(&stats)
 }
@@ -341,7 +341,7 @@ fn tcp_thread_entry() {
     }
 }
 
-fn tcp_receiver_loop(stats: &Arc<Stats>, tracker: Arc<Mutex<StatsTracker>>, socket: TcpStream) {
+fn tcp_receiver_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: TcpStream) {
     let mut buf = vec![0; TCP_RECV_BUFFER_SIZE];
 
     while !stats.is_finished() {
@@ -366,7 +366,7 @@ fn tcp_receiver_loop(stats: &Arc<Stats>, tracker: Arc<Mutex<StatsTracker>>, sock
     }
 }
 
-fn tcp_sender_loop(stats: &Arc<Stats>, tracker: Arc<Mutex<StatsTracker>>, socket: TcpStream, bandwidth: Option<u64>) {
+fn tcp_sender_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: TcpStream, bandwidth: Option<u64>) {
     let message = vec![0; TCP_SEND_MESSAGE_SIZE];
     let mut pacer = bandwidth.map(|b| Pacer::new(b));
 
@@ -405,7 +405,7 @@ fn run_udp(role: Role, local_addr: SocketAddr, remote: Option<SocketAddr>, confi
 fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, local_addr: SocketAddr) -> Results {
     let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, role, config.transfer_bytes));
     let start_flag = Arc::new(AtomicBool::new(false));
-    let threads = Arc::new(Mutex::new(Vec::new()));
+    let mut threads = Vec::new();
 
     match role {
         Role::Sender => {
@@ -427,7 +427,7 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
                 });
 
                 if let Some(t) = thread::create(udp_sender_thread_entry) {
-                    threads.lock().push(t);
+                    threads.push(t);
                 }
             }
 
@@ -451,7 +451,7 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
                 });
 
                 if let Some(t) = thread::create(udp_receiver_thread_entry) {
-                    threads.lock().push(t);
+                    threads.push(t);
                 }
             }
 
@@ -460,7 +460,7 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
     }
 
     start_flag.store(true, Ordering::Release);
-    join_threads(&threads);
+    join_threads(threads);
 
     Results::new(&stats)
 }
@@ -483,7 +483,7 @@ fn udp_sender_thread_entry() {
 
 fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
     let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
-    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, Role::Receiver, config.transfer_bytes));
+    let stats = Stats::udp(config.interval_seconds, config.duration_seconds, Role::Receiver, config.transfer_bytes);
     let tracker = stats.register_thread(current_thread_id());
     println!("{}", stats.get_header());
 
@@ -494,7 +494,7 @@ fn start_udp_receiver(local_addr: SocketAddr, config: Cli) -> Results {
 
 fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli) -> Results {
     let socket = UdpSocket::bind(local_addr).expect("failed to open socket");
-    let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, Role::Sender, config.transfer_bytes));
+    let stats = Stats::udp(config.interval_seconds, config.duration_seconds, Role::Sender, config.transfer_bytes);
     let tracker = stats.register_thread(current_thread_id());
     println!("{}", stats.get_header());
 
@@ -503,7 +503,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
     Results::new(&stats)
 }
 
-fn udp_receiver_loop(stats: &Arc<Stats>, tracker: Arc<Mutex<StatsTracker>>, socket: UdpSocket) {
+fn udp_receiver_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: UdpSocket) {
     let mut buf = vec![0; UDP_RECV_BUFFER_SIZE];
 
     while !stats.is_finished() {
@@ -528,7 +528,7 @@ fn udp_receiver_loop(stats: &Arc<Stats>, tracker: Arc<Mutex<StatsTracker>>, sock
     }
 }
 
-fn udp_sender_loop(stats: &Arc<Stats>, tracker: Arc<Mutex<StatsTracker>>, socket: UdpSocket, remote_addr: SocketAddr, bandwidth: Option<u64>) {
+fn udp_sender_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: UdpSocket, remote_addr: SocketAddr, bandwidth: Option<u64>) {
     let mut message = vec![0; UDP_SEND_MESSAGE_SIZE];
     let mut seq_num: u64 = 0;
 
@@ -572,13 +572,9 @@ fn wait_for_start(flag: &AtomicBool) {
     }
 }
 
-fn join_threads(threads: &Arc<Mutex<Vec<thread::Thread>>>) {
-    let threads_vec: Vec<thread::Thread> = {
-        let mut lock = threads.lock();
-        core::mem::take(&mut *lock)
-    };
-    for t in threads_vec {
-        t.join();
+fn join_threads(threads: Vec<thread::Thread>) {
+    for t in threads {
+        t.join().expect("Error joining threads");
     }
 }
 
