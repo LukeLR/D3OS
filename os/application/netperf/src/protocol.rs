@@ -11,7 +11,7 @@ use concurrent::thread::sleep;
 // Message buffer sizes
 pub const TCP_RECV_BUFFER_SIZE: usize = 65535;
 pub const TCP_SEND_MESSAGE_SIZE: usize = 65535;
-pub const UDP_RECV_BUFFER_SIZE: usize = 65535;
+pub const UDP_RECV_BUFFER_SIZE: usize = 1500;
 pub const UDP_SEND_MESSAGE_SIZE: usize = 1472;
 
 #[derive(Serialize, Deserialize)]

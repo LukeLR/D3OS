@@ -1,8 +1,8 @@
 extern crate alloc;
 use core::fmt::Write;
 
-use crate::cli::Protocol;
 use crate::Role;
+use crate::cli::Protocol;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -25,7 +25,7 @@ trait Column {
     fn header(&self) -> &'static str;
     fn width(&self) -> usize;
     /// Update the column with new packet data.
-    fn update(&mut self, _bytes: usize, _buf: &[u8]) {}
+    fn update(&mut self, bytes: usize, buf: &[u8]);
     /// Calculate metric for the current interval and reset internal counters.
     fn measure_interval(&mut self, interval: IntervalInfo) -> Metric;
     /// Calculate metric for the total duration.
@@ -74,42 +74,39 @@ impl Metric {
     fn to_console_string(&self) -> String {
         match self {
             Metric::Bytes { total } => {
-                alloc::format!("{:>6.2} MBytes", (*total as f64) / BYTES_PER_MEGABYTE)
+                format!("{:>6.2} MBytes", (*total as f64) / BYTES_PER_MEGABYTE)
             }
-            Metric::Speed { mbps } => alloc::format!("{:>6.2} Mbits/sec", mbps),
+            Metric::Speed { mbps } => format!("{:>6.2} Mbits/sec", mbps),
             Metric::Loss { received, expected, loss_pct } => {
                 let lost = expected.saturating_sub(*received);
-                alloc::format!("{}/{} ({:.2}%)", lost, expected, loss_pct)
+                format!("{}/{} ({:.2}%)", lost, expected, loss_pct)
             }
-            Metric::Jitter { ms } => alloc::format!("{:.3} ms", ms),
+            Metric::Jitter { ms } => format!("{:.3} ms", ms),
             Metric::Id { id } => {
                 if *id == usize::MAX {
                     String::from("[SUM]")
                 } else {
-                    alloc::format!("[{}]", id)
+                    format!("[{}]", id)
                 }
             }
-            Metric::Interval { start_s, end_s } => alloc::format!("{:>4.2}-{:>4.2} sec", start_s, end_s),
+            Metric::Interval { start_s, end_s } => format!("{:>4.2}-{:>4.2} sec", start_s, end_s),
         }
     }
 
     fn to_json(&self) -> String {
         match self {
-            Metric::Bytes { total } => alloc::format!("\"bytes\": {}", total),
-            Metric::Speed { mbps } => alloc::format!("\"bitrate_mbps\": {:.4}", mbps),
+            Metric::Bytes { total } => format!("\"bytes\": {}", total),
+            Metric::Speed { mbps } => format!("\"bitrate_mbps\": {:.4}", mbps),
             Metric::Loss { received, expected, loss_pct } => {
                 let lost = expected.saturating_sub(*received);
-                alloc::format!(
+                format!(
                     "\"packets_received\": {}, \"packets_expected\": {}, \"packets_lost\": {}, \"loss_percent\": {:.4}",
-                    received,
-                    expected,
-                    lost,
-                    loss_pct
+                    received, expected, lost, loss_pct
                 )
             }
-            Metric::Jitter { ms } => alloc::format!("\"jitter_ms\": {:.4}", ms),
-            Metric::Id { id } => alloc::format!("\"thread_id\": {}", id),
-            Metric::Interval { start_s, end_s } => alloc::format!("\"start\": {:.2}, \"end\": {:.2}", start_s, end_s),
+            Metric::Jitter { ms } => format!("\"jitter_ms\": {:.4}", ms),
+            Metric::Id { id } => format!("\"thread_id\": {}", id),
+            Metric::Interval { start_s, end_s } => format!("\"start\": {:.2}, \"end\": {:.2}", start_s, end_s),
         }
     }
 }
@@ -312,6 +309,8 @@ impl Column for IntervalColumn {
         18
     }
 
+    fn update(&mut self, _bytes: usize, _buf: &[u8]) {}
+
     fn measure_interval(&mut self, interval: IntervalInfo) -> Metric {
         Metric::Interval {
             start_s: interval.interval_start_s,
@@ -345,6 +344,8 @@ impl Column for IdColumn {
     fn width(&self) -> usize {
         5
     }
+
+    fn update(&mut self, _bytes: usize, _buf: &[u8]) {}
 
     fn measure_interval(&mut self, _: IntervalInfo) -> Metric {
         Metric::Id { id: self.id }
