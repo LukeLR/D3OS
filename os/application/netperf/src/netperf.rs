@@ -20,6 +20,7 @@ use concurrent::thread;
 use core::fmt::{self, Display, Formatter};
 use core::net::SocketAddr;
 use core::sync::atomic::{AtomicBool, Ordering};
+use log::info;
 use network::{NetworkError, TcpListener, TcpStream, UdpSocket};
 use protocol::{TCP_RECV_BUFFER_SIZE, TCP_SEND_MESSAGE_SIZE, UDP_RECV_BUFFER_SIZE, UDP_SEND_MESSAGE_SIZE};
 use server::Server;
@@ -136,6 +137,7 @@ impl Pacer {
 
 #[unsafe(no_mangle)]
 pub fn main() {
+    terminal::init_logger();
     let cli = Cli::parse();
 
     if let Err(message) = cli {
@@ -251,7 +253,9 @@ fn start_client(config: Cli) {
     println!("{}", server_results.summary);
 
     if config.json_output {
-        // TODO: Write json data into a file
+        info!("\n{}\n", results.json);
+        info!("----------------------------------------");
+        info!("\n{}\n", server_results.json);
     }
 }
 
@@ -574,7 +578,11 @@ fn wait_for_start(flag: &AtomicBool) {
 
 fn join_threads(threads: Vec<thread::Thread>) {
     for t in threads {
-        t.join().expect("Error joining threads");
+        match t.join() {
+            Ok(_) => {}
+            // Sometimes getting an error (ESRCH), ignore it
+            Err(_) => {}
+        }
     }
 }
 

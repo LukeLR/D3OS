@@ -470,8 +470,8 @@ fn poll_sockets() -> Option<()> {
         let is_closed = match socket {
             // Only remove TCP sockets that have fully traversed the state machine to the CLOSED state.
             socket::Socket::Tcp(s) => s.state() == tcp::State::Closed,
-            // UDP sockets are "closed" when they are not open.
-            socket::Socket::Udp(s) => !s.is_open(),
+            // UDP sockets are stateless so whe can remove them immediately
+            socket::Socket::Udp(s) => true,
             _ => false,
         };
 
