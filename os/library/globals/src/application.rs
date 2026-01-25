@@ -152,11 +152,15 @@ pub const APPLICATION_REGISTRY: &'static [Application] = &[
             "-c",
             "-u",
             "-r",
+            "--json",
         ],
         key_value_pair: &[
             ("-p", &["2000"]),
             ("-i", &["1"]),
             ("-t", &["10"]),
+            ("-P", &["1"]),
+            ("-n", &["100M"]),
+            ("-b", &["10M"]),
         ],
     }
 ];
