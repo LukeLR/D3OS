@@ -27,6 +27,7 @@ pub enum ControlMsg {
 
 /// Blocks until the message is sent.
 pub fn send_msg(stream: &TcpStream, msg: &ControlMsg) {
+    // Serialize the control message
     let buf: Vec<u8> = to_allocvec(msg).expect("unable to allocate buffer");
     let len_bytes = (buf.len() as u32).to_be_bytes();
 
@@ -44,6 +45,7 @@ pub fn recv_msg(stream: &TcpStream) -> ControlMsg {
     let mut payload_buf = vec![0u8; len];
     read_exact(stream, &mut payload_buf);
 
+    // Deserialize the control message and return it
     from_bytes(&payload_buf).expect("error receiving control message")
 }
 

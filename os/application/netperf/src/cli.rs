@@ -7,6 +7,7 @@ use runtime::env;
 use runtime::env::Args;
 use serde::{Deserialize, Serialize};
 
+/// Stores the CLI configuration options
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct Cli {
     pub mode: Mode,
@@ -48,14 +49,17 @@ impl Cli {
         args.next();
 
         let host = match args.peek() {
+            // If a host is provided, determine its IP address
             Some(arg) if !arg.starts_with('-') => {
                 let host_str = args.next().unwrap();
 
+                // Resolve the hostname to an IP address (or returns the IP if it is already an IP address)
                 resolve_hostname(&host_str)
                     .into_iter()
                     .next()
                     .ok_or_else(|| "Could not resolve host".to_string())?
             }
+            // Client mode requires a host, server mode defaults to 0.0.0.0
             _ => match mode {
                 Mode::Server => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
                 Mode::Client => return Err("Usage: netperf [-s|-c host] [options]".to_string()),
@@ -131,11 +135,15 @@ impl Cli {
         Ok(cli)
     }
 
+    /// Parses the next argument as the value for the given option
     fn parse_next(args: &mut Peekable<Args>, option_name: &str) -> Result<String, String> {
         args.next();
         args.next().ok_or_else(|| format!("Missing value for option {}", option_name))
     }
 
+    /// Parses a value with optional suffixes (K, M, G, T) to determine the exponent
+    /// - `input`: The input string to parse
+    /// - `base`: The numeric base for the exponent
     fn parse_value(input: &str, base: u64) -> Result<u64, String> {
         let input = input.trim();
         if input.is_empty() {

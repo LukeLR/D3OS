@@ -21,6 +21,7 @@ const BITS_PER_MEGABIT: f64 = 1_000_000.0;
 const COL_SEP: &str = " ";
 
 /// Trait for a column in the statistics output.
+/// Each column is responsible for updating its state with new packet data.
 trait Column {
     fn header(&self) -> &'static str;
     fn width(&self) -> usize;
@@ -32,6 +33,7 @@ trait Column {
     fn measure_overall(&self, total_duration_s: f64) -> Metric;
 }
 
+/// Represents a single metric measurement.
 #[derive(Clone)]
 enum Metric {
     Bytes { total: u64 },
@@ -71,6 +73,7 @@ impl Metric {
         }
     }
 
+    /// Formats the metric for console output
     fn to_console_string(&self) -> String {
         match self {
             Metric::Bytes { total } => {
@@ -93,6 +96,7 @@ impl Metric {
         }
     }
 
+    /// Formats the metric for JSON output
     fn to_json(&self) -> String {
         match self {
             Metric::Bytes { total } => format!("\"bytes\": {}", total),
@@ -111,11 +115,13 @@ impl Metric {
     }
 }
 
+/// Represents a formatted report row with raw metrics.
 struct ReportRow {
     formatted_line: String,
     raw_metrics: Vec<Metric>,
 }
 
+/// Tracks statistics for a single thread/stream.
 pub struct StatsTracker {
     columns: Vec<Box<dyn Column + Send>>,
     global_transferred: Arc<AtomicU64>,
@@ -133,6 +139,7 @@ impl StatsTracker {
         }
     }
 
+    /// Generates the header line for the console output.
     fn get_header(&self) -> String {
         let mut line = String::new();
         for (i, c) in self.columns.iter().enumerate() {
@@ -144,6 +151,7 @@ impl StatsTracker {
         line
     }
 
+    /// Updates the tracker and all its columns with new packet data.
     pub fn update(&mut self, bytes: usize, buf: &[u8]) {
         self.global_transferred.fetch_add(bytes as u64, Ordering::Relaxed);
 
@@ -152,12 +160,14 @@ impl StatsTracker {
         }
     }
 
+    /// Builds a report row for the given interval.
     fn build_report(&mut self, info: IntervalInfo) -> ReportRow {
         let mut metrics = Vec::with_capacity(self.columns.len());
         let mut line = String::new();
         let mut json = String::new();
         let _ = write!(json, "{{ \"seconds\": {:.2}", info.elapsed_seconds);
 
+        // Collect measurements from each column, build the line for console output and append the report to the collected JSON data.
         for (i, column) in self.columns.iter_mut().enumerate() {
             if i > 0 {
                 line.push_str(COL_SEP);
@@ -178,6 +188,7 @@ impl StatsTracker {
         }
     }
 
+    /// Builds the summary report row for the total duration.
     fn build_summary(&mut self, total_duration_s: f64) -> ReportRow {
         let mut metrics = Vec::with_capacity(self.columns.len());
         let mut line = String::new();
@@ -197,6 +208,7 @@ impl StatsTracker {
 
         json.push_str(" }, \"intervals\": [");
 
+        // Collect the interval data for JSON output
         for (i, interval) in self.interval_json_data.iter().enumerate() {
             if i > 0 {
                 json.push_str(", ");
@@ -206,6 +218,7 @@ impl StatsTracker {
         }
 
         json.push_str("]");
+        // Store the final JSON data for later retrieval
         self.final_json_data = Some(json);
 
         ReportRow {
@@ -219,6 +232,7 @@ impl StatsTracker {
     }
 }
 
+/// Information about an elapsed interval used for reporting.
 #[derive(Copy, Clone)]
 struct IntervalInfo {
     elapsed_seconds: f64,
@@ -244,6 +258,7 @@ impl ReportInterval {
         }
     }
 
+    /// Checks if an interval has elapsed. If so, returns IntervalInfo and updates the last report time.
     fn check(&mut self) -> Option<IntervalInfo> {
         let current_time = time::systime();
         let elapsed = current_time - self.last_report_time;
@@ -268,6 +283,7 @@ impl ReportInterval {
         self.total_duration.as_seconds_f64()
     }
 
+    /// Finalizes any pending interval when the benchmark has finished.
     fn finalize_pending_interval(&mut self) -> Option<IntervalInfo> {
         let current_time = time::systime();
 
@@ -292,6 +308,7 @@ impl ReportInterval {
     }
 }
 
+/// Column for reporting the interval time, does not track any data.
 struct IntervalColumn;
 
 impl IntervalColumn {
@@ -326,6 +343,7 @@ impl Column for IntervalColumn {
     }
 }
 
+/// Column for reporting the thread ID, does not track any data.
 struct IdColumn {
     id: usize,
 }
@@ -356,6 +374,7 @@ impl Column for IdColumn {
     }
 }
 
+/// Column for reporting the number of transferred bytes.
 struct TransferColumn {
     bytes_interval: u64,
     total_bytes: u64,
@@ -396,6 +415,7 @@ impl Column for TransferColumn {
     }
 }
 
+/// Column for reporting the bitrate. Returns measurements in Mbit/s.
 struct BitrateColumn {
     bytes_interval: u64,
     total_bytes: u64,
@@ -443,6 +463,7 @@ impl Column for BitrateColumn {
     }
 }
 
+/// Column for reporting UDP packet loss.
 struct UdpLossColumn {
     tracker: UdpLossTracker,
 }
@@ -488,6 +509,7 @@ impl Column for UdpLossColumn {
     }
 }
 
+/// Helper struct to track UDP packet loss.
 struct UdpLossTracker {
     total_received: u64,
     highest_seq: u64,
@@ -511,6 +533,7 @@ impl UdpLossTracker {
             return;
         }
 
+        // parse the sequence number
         let seq_bytes: [u8; 8] = buf[..8].try_into().expect("Slice failed");
         let seq_num = u64::from_le_bytes(seq_bytes);
         self.track_packet(seq_num);
@@ -576,6 +599,7 @@ impl UdpLossTracker {
     }
 }
 
+/// Column for reporting jitter according to RFC 3550.
 struct UdpJitterColumn {
     tracker: UdpJitterTracker,
 }
@@ -614,6 +638,7 @@ impl Column for UdpJitterColumn {
     }
 }
 
+/// Helper struct to track UDP jitter according to RFC 3550.
 struct UdpJitterTracker {
     jitter_ms: f64,
     prev_transit: Option<TimeDelta>,
@@ -661,6 +686,7 @@ impl UdpJitterTracker {
     }
 }
 
+/// Manages trackers for single or multiple threads/streams and handles reporting.
 pub struct Stats {
     interval: Mutex<ReportInterval>,
     trackers: Mutex<BTreeMap<usize, Arc<Mutex<StatsTracker>>>>,
@@ -690,6 +716,7 @@ impl Stats {
         Self::new(Protocol::Udp, role, interval_seconds, total_time_seconds, limit_bytes)
     }
 
+    /// Creates a new StatsTracker for a given thread ID.
     fn create_tracker(&self, thread_id: usize) -> StatsTracker {
         let mut columns: Vec<Box<dyn Column + Send>> = vec![
             Box::new(IdColumn::new(thread_id)),
@@ -706,7 +733,7 @@ impl Stats {
         StatsTracker::new(columns, self.global_transferred.clone())
     }
 
-    /// Registers a thread and returns its tracker
+    /// Registers a thread and returns its tracker.
     pub fn register_thread(&self, thread_id: usize) -> Arc<Mutex<StatsTracker>> {
         let mut trackers = self.trackers.lock();
 
@@ -725,6 +752,7 @@ impl Stats {
         self.interval.lock().has_time_elapsed()
     }
 
+    /// Generates the header line for the console output.
     pub fn get_header(&self) -> String {
         let trackers = self.trackers.lock();
 
@@ -735,6 +763,7 @@ impl Stats {
         }
     }
 
+    /// Calculates the sum row if there are multiple parallel streams/trackers.
     fn calculate_sum_row(&self, rows: &[ReportRow]) -> Option<String> {
         if rows.len() <= 1 {
             return None;
@@ -759,6 +788,8 @@ impl Stats {
         }
 
         let trackers = self.trackers.lock();
+        
+        // As all the trackers have the same columns, we can use any of them to get the column widths to format the sum row.
         if let Some((_, tracker)) = trackers.iter().next() {
             let tracker = tracker.lock();
             let mut line = String::new();
@@ -776,6 +807,7 @@ impl Stats {
         None
     }
 
+    /// Collects output lines and the sum line (if there are multiple trackers) using the provided row generator function.
     fn collect_output<F>(&self, mut get_row: F) -> (Vec<String>, Option<String>)
     where
         F: FnMut(&mut StatsTracker) -> ReportRow,
@@ -795,6 +827,7 @@ impl Stats {
         (lines, sum_line)
     }
 
+    /// Prints the report for a given interval, if the interval info is provided.
     fn print_on_interval(&self, info: Option<IntervalInfo>) {
         if let Some(info) = info {
             let (lines, sum) = self.collect_output(|t| t.build_report(info));
@@ -814,12 +847,14 @@ impl Stats {
         }
     }
 
+    /// Prints the interval report only if an interval has elapsed.
     pub fn print_interval_report(&self) {
         let mut interval = self.interval.lock();
 
         self.print_on_interval(interval.check());
     }
 
+    /// Finalizes any pending interval and generates the final summary report.
     pub fn finalize_and_get_summary(&self) -> String {
         let mut interval = self.interval.lock();
         let interval_info = interval.finalize_pending_interval();
@@ -836,6 +871,7 @@ impl Stats {
         format!("{}\n{}", self.get_header(), lines.join("\n"))
     }
 
+    /// Generates the combined JSON output for all trackers.
     pub fn as_json(&self) -> String {
         let trackers = self.trackers.lock();
         let mut stream_jsons = Vec::new();

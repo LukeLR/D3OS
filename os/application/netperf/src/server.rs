@@ -5,11 +5,13 @@ use core::net::SocketAddr;
 use network::{NetworkError, TcpListener, TcpStream};
 use terminal::println;
 
+/// Wrapper around the server-side control channel.
 pub struct Server {
     control_channel: TcpStream,
 }
 
 impl Server {
+    /// Blocks until a client connects to the specified host and port.
     pub fn listen(config: Cli) -> Result<Server, NetworkError> {
         let listener = TcpListener::bind(SocketAddr::new(config.host, config.port))?;
 
@@ -28,6 +30,7 @@ impl Server {
         Ok(Server { control_channel })
     }
 
+    /// Performs the handshake with the connected client and returns the client's CLI configuration.
     pub fn handshake(&self) -> Cli {
         let client_arguments = match recv_msg(&self.control_channel) {
             ControlMsg::CliArgs(cli) => cli,
@@ -39,6 +42,7 @@ impl Server {
         client_arguments
     }
 
+    /// Sends the results of the benchmark to the connected client.
     pub fn send_results(&self, results: Results) {
         send_msg(&self.control_channel, &ControlMsg::Results(results.summary, results.json));
     }

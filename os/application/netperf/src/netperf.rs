@@ -33,6 +33,7 @@ static TCP_WORK_QUEUE: Mutex<VecDeque<TcpWorkItem>> = Mutex::new(VecDeque::new()
 static UDP_SENDER_WORK_QUEUE: Mutex<VecDeque<UdpSenderWorkItem>> = Mutex::new(VecDeque::new());
 static UDP_RECEIVER_WORK_QUEUE: Mutex<VecDeque<UdpReceiverWorkItem>> = Mutex::new(VecDeque::new());
 
+/// Used to pass data to TCP worker threads
 struct TcpWorkItem {
     role: Role,
     stats: Arc<Stats>,
@@ -41,6 +42,7 @@ struct TcpWorkItem {
     bandwidth: Option<u64>,
 }
 
+/// Used to pass data to UDP sender worker threads
 struct UdpSenderWorkItem {
     stats: Arc<Stats>,
     socket: UdpSocket,
@@ -49,6 +51,7 @@ struct UdpSenderWorkItem {
     bandwidth: Option<u64>,
 }
 
+/// Used to pass data to UDP receiver worker threads
 struct UdpReceiverWorkItem {
     stats: Arc<Stats>,
     socket: UdpSocket,
@@ -93,8 +96,10 @@ impl Results {
     }
 }
 
+/// Minimum sleep duration in milliseconds for the pacer
 const MIN_SLEEP_MS: usize = 6;
 
+/// Pacer for bandwidth limiting
 struct Pacer {
     start_time: f64,
     bytes_sent: u64,
@@ -110,6 +115,7 @@ impl Pacer {
         }
     }
 
+    /// Blocks the current thread if sending new_bytes exceeds the bandwidth limit
     fn block_if_needed(&mut self, new_bytes: usize) {
         self.bytes_sent += new_bytes as u64;
 
@@ -153,6 +159,7 @@ pub fn main() {
     }
 }
 
+/// Starts the benchmark in server mode, handles only one client at a time
 fn start_server(config: Cli) {
     loop {
         let server = Server::listen(config).expect("server err");
@@ -169,6 +176,7 @@ fn start_server(config: Cli) {
                     let listener = TcpListener::bind(local_addr).expect("failed to bind tcp socket");
                     let socket = listener.accept().expect("failed to accept tcp connection");
 
+                    // Synchronize start so that the receiver is ready before the sender starts
                     match role {
                         Role::Receiver => server.signal_ready(),
                         Role::Sender => server.wait_for_ready(),
@@ -186,6 +194,7 @@ fn start_server(config: Cli) {
                         Role::Receiver => None,
                     };
 
+                    // Synchronize start so that the receiver is ready before the sender starts
                     match role {
                         Role::Receiver => server.signal_ready(),
                         Role::Sender => server.wait_for_ready(),
@@ -203,6 +212,7 @@ fn start_server(config: Cli) {
     }
 }
 
+/// Starts the benchmark in client mode
 fn start_client(config: Cli) {
     let client = Client::connect(config).expect("client err");
     client.handshake(config);
@@ -216,6 +226,7 @@ fn start_client(config: Cli) {
             } else {
                 let socket = TcpStream::connect(SocketAddr::new(config.host, config.port)).expect("failed to connect to tcp socket");
 
+                // Synchronize start so that the receiver is ready before the sender starts
                 match role {
                     Role::Receiver => client.signal_ready(),
                     Role::Sender => client.wait_for_ready(),
@@ -234,6 +245,7 @@ fn start_client(config: Cli) {
                     Role::Receiver => None,
                 };
 
+                // Synchronize start so that the receiver is ready before the sender starts
                 match role {
                     Role::Receiver => client.signal_ready(),
                     Role::Sender => client.wait_for_ready(),
@@ -253,12 +265,14 @@ fn start_client(config: Cli) {
     println!("{}", server_results.summary);
 
     if config.json_output {
+        // Log JSON results to serial output
         info!("\n{}\n", results.json);
         info!("----------------------------------------");
         info!("\n{}\n", server_results.json);
     }
 }
 
+/// Runs a single TCP stream benchmark
 fn run_tcp_single(role: Role, socket: TcpStream, config: Cli) -> Results {
     let stats = Stats::tcp(config.interval_seconds, config.duration_seconds, config.transfer_bytes);
     let tracker = stats.register_thread(current_thread_id());
@@ -272,17 +286,20 @@ fn run_tcp_single(role: Role, socket: TcpStream, config: Cli) -> Results {
     Results::new(&stats)
 }
 
+/// Runs a parallel TCP stream benchmark
 fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, local_addr: SocketAddr) -> Results {
     let stats = Arc::new(Stats::tcp(config.interval_seconds, config.duration_seconds, config.transfer_bytes));
     let start_flag = Arc::new(AtomicBool::new(false));
     let mut threads = Vec::new();
 
     let sockets = if coordinator.is_server() {
+        // Only the server listens for incoming connections, preventing NAT/firewall issues
         accept_tcp_streams(coordinator, config, local_addr)
     } else {
         connect_tcp_streams(coordinator, config)
     };
 
+    // Enqueue work items and spawn threads
     for socket in sockets {
         TCP_WORK_QUEUE.lock().push_back(TcpWorkItem {
             role,
@@ -297,12 +314,16 @@ fn run_tcp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
         }
     }
 
+    // Synchronize start so that the receiver's worker threads are ready before the sender starts
     match role {
         Role::Sender => coordinator.wait_for_start_benchmark(),
         Role::Receiver => coordinator.signal_start_benchmark(),
     }
 
+    // Unblock all threads
     start_flag.store(true, Ordering::Release);
+
+    // Wait for all threads to finish
     join_threads(threads);
 
     Results::new(&stats)
@@ -312,6 +333,7 @@ fn connect_tcp_streams<C: Coordinator>(coordinator: &C, config: Cli) -> Vec<TcpS
     let mut sockets = Vec::with_capacity(config.parallel_streams as usize);
 
     for _ in 0..config.parallel_streams {
+        // Wait until the server is ready to accept the next stream
         coordinator.wait_for_stream_ready();
         let socket = TcpStream::connect(SocketAddr::new(config.host, config.port)).expect("failed to connect tcp stream");
         sockets.push(socket);
@@ -325,6 +347,7 @@ fn accept_tcp_streams<C: Coordinator>(coordinator: &C, config: Cli, local_addr: 
 
     for stream_id in 0..config.parallel_streams {
         let listener = TcpListener::bind(local_addr).expect("failed to bind tcp socket");
+        // Signal the client that the server is ready to accept the next stream
         coordinator.signal_stream_ready(stream_id);
         let socket = listener.accept().expect("failed to accept tcp connection");
         sockets.push(socket);
@@ -345,6 +368,7 @@ fn tcp_thread_entry() {
     }
 }
 
+/// Main execution loop for TCP receiver threads
 fn tcp_receiver_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: TcpStream) {
     let mut buf = vec![0; TCP_RECV_BUFFER_SIZE];
 
@@ -363,6 +387,7 @@ fn tcp_receiver_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: T
                 }
             }
         } else {
+            // Sleep briefly to avoid busy waiting
             thread::sleep(30);
         }
 
@@ -370,6 +395,7 @@ fn tcp_receiver_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: T
     }
 }
 
+/// Main execution loop for TCP sender threads
 fn tcp_sender_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: TcpStream, bandwidth: Option<u64>) {
     let message = vec![0; TCP_SEND_MESSAGE_SIZE];
     let mut pacer = bandwidth.map(|b| Pacer::new(b));
@@ -383,6 +409,7 @@ fn tcp_sender_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: Tcp
                         p.block_if_needed(len);
                     }
 
+                    // Pass an empty buffer
                     tracker.lock().update(len, &[]);
                 },
                 Err(err) => {
@@ -392,6 +419,7 @@ fn tcp_sender_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: Tcp
                 }
             };
         } else {
+            // Sleep briefly to avoid busy waiting
             thread::sleep(30)
         }
 
@@ -406,6 +434,7 @@ fn run_udp(role: Role, local_addr: SocketAddr, remote: Option<SocketAddr>, confi
     }
 }
 
+/// Runs a parallel UDP stream benchmark
 fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, local_addr: SocketAddr) -> Results {
     let stats = Arc::new(Stats::udp(config.interval_seconds, config.duration_seconds, role, config.transfer_bytes));
     let start_flag = Arc::new(AtomicBool::new(false));
@@ -435,6 +464,7 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
                 }
             }
 
+            // Synchronize start so that the receiver's worker threads are ready before the sender starts
             coordinator.wait_for_start_benchmark();
         }
         Role::Receiver => {
@@ -459,11 +489,15 @@ fn run_udp_parallel<C: Coordinator>(coordinator: &C, role: Role, config: Cli, lo
                 }
             }
 
+            // Allow the sender to start now that all receiver threads are ready
             coordinator.signal_start_benchmark();
         }
     }
 
+    // Unblock all threads
     start_flag.store(true, Ordering::Release);
+
+    // Wait for all threads to finish
     join_threads(threads);
 
     Results::new(&stats)
@@ -507,6 +541,7 @@ fn start_udp_sender(local_addr: SocketAddr, remote_addr: SocketAddr, config: Cli
     Results::new(&stats)
 }
 
+/// Main execution loop for UDP receiver threads
 fn udp_receiver_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: UdpSocket) {
     let mut buf = vec![0; UDP_RECV_BUFFER_SIZE];
 
@@ -532,6 +567,7 @@ fn udp_receiver_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: U
     }
 }
 
+/// Main execution loop for UDP sender threads
 fn udp_sender_loop(stats: &Stats, tracker: Arc<Mutex<StatsTracker>>, socket: UdpSocket, remote_addr: SocketAddr, bandwidth: Option<u64>) {
     let mut message = vec![0; UDP_SEND_MESSAGE_SIZE];
     let mut seq_num: u64 = 0;
@@ -570,6 +606,7 @@ fn current_thread_id() -> usize {
     thread::current().map(|t| t.id()).unwrap_or(0)
 }
 
+/// Blocks until the flag is set to true
 fn wait_for_start(flag: &AtomicBool) {
     while !flag.load(Ordering::Acquire) {
         thread::switch();
