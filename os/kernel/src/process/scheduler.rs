@@ -29,7 +29,6 @@
 use crate::process::thread::{Thread, ThreadState};
 use crate::{allocator, apic, scheduler, timer, tss};
 use alloc::collections::VecDeque;
-use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -37,7 +36,6 @@ use core::fmt::Write;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
 use core::{panic, ptr};
-use log::info;
 use smallmap::Map;
 use spin::{Mutex, MutexGuard};
 use syscall::return_vals::Errno;

@@ -24,7 +24,7 @@ use naming::shared_types::{DirEntry, FileType, OpenOptions};
 use nolock::queues::mpmc;
 use spin::rwlock::RwLock;
 use syscall::return_vals::Errno;
-use log::{info, warn};
+use log::info;
 
 pub struct TmpFs {
     root_dir: Arc<Dir>,

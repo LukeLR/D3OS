@@ -464,7 +464,7 @@ impl VirtualAddressSpace {
     /// Destination addresses are manually retrieved from the page tables of the `dest_process`. \
     /// If `fill_up_with_zeroes` is true, the remaining bytes in the last page will be filled with zeroes.
     pub unsafe fn copy_to_addr_space(
-        &self, src_ptr: *const u8, dest_space: &VirtualAddressSpace, dest_page_start: Page, total_bytes_to_copy: u64, fill_up_with_zeroes: bool,
+        &self, src_ptr: *const u8, dest_space: &VirtualAddressSpace, dest_vma: &VirtualMemoryArea, total_bytes_to_copy: u64, fill_up_with_zeroes: bool,
     ) {
         // Calc number of pages to be copied
         let pages_to_copy = if total_bytes_to_copy as usize % PAGE_SIZE == 0 {
@@ -474,9 +474,10 @@ impl VirtualAddressSpace {
         };
 
         unsafe {
-            let mut bytes_to_copy = 0;
+            let mut bytes_to_copy;
             let mut offset = 0;
 
+            let dest_page_start = dest_vma.range.start;
             let mut dest_phys_addr = dest_space.get_phys(dest_page_start.start_address().as_u64()).expect("get_phys failed");
             let mut dest = dest_phys_addr.as_u64() as *mut u8;
             for _i in 0..pages_to_copy {
@@ -503,9 +504,11 @@ impl VirtualAddressSpace {
 
             // fill up last code page with zeroes if not fully used
             if fill_up_with_zeroes {
-                let rest_bytes_to_copy = PAGE_SIZE as u64 - bytes_to_copy;
-                if rest_bytes_to_copy > 0 {
-                    dest.offset(offset as isize).write_bytes(0, rest_bytes_to_copy as usize);
+                let vma_size = dest_vma.range.len() * PAGE_SIZE as u64;
+                let remaining_bytes = vma_size - total_bytes_to_copy;
+
+                if remaining_bytes > 0 {
+                    dest.offset(offset as isize).write_bytes(0, remaining_bytes as usize);
                 }
             }
         }
