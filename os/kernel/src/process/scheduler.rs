@@ -32,6 +32,7 @@ use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use log::debug;
 use core::fmt::Write;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
@@ -122,7 +123,42 @@ impl Scheduler {
 
     /// Return reference to thread identified by `thread_id`
     pub fn thread(&self, thread_id: usize) -> Option<Arc<Thread>> {
-        self.ready_state.lock().ready_queue.iter().find(|thread| thread.id() == thread_id).cloned()
+        debug!("Scheduler::thread: Searching for thread id {}", thread_id);
+        
+        // First check if it's the current thread
+        let state = self.ready_state.lock();
+        if let Some(current) = state.current_thread.as_ref() {
+            if current.id() == thread_id {
+                return Some(Arc::clone(current));
+            }
+        }
+        
+        // Check ready queue
+        if let Some(thread) = state.ready_queue
+            .iter()
+            .find(|thread| thread.id() == thread_id)
+            .cloned() {
+                return Some(thread);
+        }
+        drop(state);
+        
+        // Check sleep list
+        if let Some(thread) = self.sleep_list.lock()
+            .iter()
+            .find(|(thread, _)| thread.id() == thread_id)
+            .map(|(thread, _)| thread.clone()) {
+                return Some(thread);
+        }
+        
+        // Check blocked list
+        if let Some(thread) = self.blocked_list.lock()
+            .iter()
+            .find(|thread| thread.id() == thread_id)
+            .cloned() {
+                return Some(thread);
+        }
+        
+        None
     }
 
     /// Return (pid, tid) of current thread
