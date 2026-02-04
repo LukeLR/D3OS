@@ -1,29 +1,30 @@
+//! This module contains memory management functions such as [`malloc`] and [`free`].
+//! They provide a wrapper around Rust's [`alloc::alloc::alloc`] and are marked
+//! with `no_mangle`, so that C applications can use them by the name.
+//! But this may not happen on `cfg(test)`, because std's allocator will use
+//! them in this case, creating a circular call-chain.
+
 use alloc::collections::BTreeMap;
 use core::alloc::Layout;
 use core::cmp::min;
 use core::ffi::{c_size_t, c_void};
 use core::ptr;
-use core::ptr::NonNull;
 use spin::Mutex;
-use runtime::ALLOCATOR;
 
 static ALLOCATIONS: Mutex<BTreeMap<u64, c_size_t>> = Mutex::new(BTreeMap::new());
 
-#[unsafe(no_mangle)]
+#[cfg_attr(not(test), unsafe(no_mangle))]
 pub unsafe extern "C" fn malloc(size: c_size_t) -> *mut c_void {
     let layout = Layout::from_size_align(size, 8).unwrap();
 
-    let block = ALLOCATOR.lock().allocate_first_fit(layout);
-    match block {
-        Ok(ptr) => {
-            ALLOCATIONS.lock().insert(ptr.as_ptr() as u64, size);
-            ptr.as_ptr() as *mut c_void
-        },
-        Err(_) => ptr::null_mut(),
+    let ptr = unsafe { alloc::alloc::alloc(layout) };
+    if !ptr.is_null() {
+        ALLOCATIONS.lock().insert(ptr as u64, size);
     }
+    ptr.cast()
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(not(test), unsafe(no_mangle))]
 pub unsafe extern "C" fn calloc(num: c_size_t, size: c_size_t) -> *mut c_void {
     unsafe {
         let ptr = malloc(num * size);
@@ -35,7 +36,7 @@ pub unsafe extern "C" fn calloc(num: c_size_t, size: c_size_t) -> *mut c_void {
     }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(not(test), unsafe(no_mangle))]
 pub unsafe extern "C" fn realloc(ptr: *mut c_void, new_size: c_size_t) -> *mut c_void {
     unsafe {
         let new_ptr = malloc(new_size);
@@ -55,7 +56,7 @@ pub unsafe extern "C" fn realloc(ptr: *mut c_void, new_size: c_size_t) -> *mut c
     }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(not(test), unsafe(no_mangle))]
 pub unsafe extern "C" fn free(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
@@ -66,5 +67,5 @@ pub unsafe extern "C" fn free(ptr: *mut c_void) {
         .expect("realloc: Invalid pointer");
 
     let layout = Layout::from_size_align(size, 8).unwrap();
-    unsafe { ALLOCATOR.lock().deallocate(NonNull::new_unchecked(ptr as *mut u8), layout); }
+    unsafe { alloc::alloc::dealloc(ptr.cast(), layout); }
 }

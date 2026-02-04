@@ -717,7 +717,6 @@ version = "0.1.0"
 dependencies = [
  "naming",
  "printf-compat",
- "runtime",
  "spin 0.10.0",
  "syscall",
  "terminal",

@@ -12,7 +12,6 @@ bench = false
 [dependencies]
 # Local dependencies
 syscall = { path = "../syscall" }
-runtime = { path = "../runtime" }
 terminal = { path = "../terminal" }
 naming = { path = "../../library/naming" }
 
