@@ -24,7 +24,7 @@ use naming::shared_types::{DirEntry, FileType, OpenOptions};
 use nolock::queues::mpmc;
 use spin::rwlock::RwLock;
 use syscall::return_vals::Errno;
-use log::info;
+use log::{info, warn};
 
 pub struct TmpFs {
     root_dir: Arc<Dir>,
@@ -389,13 +389,18 @@ impl PipeObject for Pipe {
     /// Read from pipe buffer, `offset` is ignored
     fn read(&self, buf: &mut [u8], _offset: usize, _options: OpenOptions) -> Result<usize, Errno> {
 
-        // EOF if no writer is present
+        // EOF if no writer is present and no data available
         if !self.has_writer.load(Ordering::SeqCst) && !self.has_data() {
-            return Err(Errno::EOF);
+            return Ok(0);
         }
 
         // check if there is data available, otherwise block
-        self.rx_wq.wait(|| self.has_data());
+//        self.rx_wq.wait(|| self.has_data());
+        self.rx_wq.wait(|| self.has_data() || !self.has_writer());
+        if !self.has_data() && !self.has_writer() {
+            return Err(Errno::EOF);
+        }
+
 
         let total_to_read = buf.len();
 
@@ -427,7 +432,11 @@ impl PipeObject for Pipe {
                 Err(_) => {
                     info!("reader: pipe empty, total_read={}", total_read);
                     // no data available -> block until data appears
-                    self.rx_wq.wait(|| self.has_data());
+//                    self.rx_wq.wait(|| self.has_data());
+                    self.rx_wq.wait(|| self.has_data() || !self.has_writer());
+                    if !self.has_data() && !self.has_writer() {
+                        break; // or return EOF if total_read==0
+                    }
                 }
             }
         }
@@ -451,6 +460,7 @@ impl PipeObject for Pipe {
         let mut total_written = 0;
         for byte in buf {
 //            info!("    pipe write loop");
+
             match self.wx.try_enqueue(*byte) {
                 Ok(()) => {
                     self.count.fetch_add(1, Ordering::SeqCst);
@@ -462,7 +472,12 @@ impl PipeObject for Pipe {
                 }
                 Err(_) => {
                     // no space in buffer available -> block until data is consumed
-                    self.wx_wq.wait(|| self.has_space());
+//                    self.wx_wq.wait(|| self.has_space());
+                    self.wx_wq.wait(|| self.has_space() || !self.has_reader());
+                    if !self.has_reader() {
+                        return Err(Errno::EPIPE);
+                    }
+
                 }
             }
         }
