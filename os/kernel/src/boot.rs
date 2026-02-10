@@ -16,6 +16,7 @@ use crate::interrupt::interrupt_dispatcher;
 use crate::memory::nvmem::Nfit;
 use crate::memory::pages::page_table_index;
 use crate::memory::vma::VmaType;
+use crate::memory::vmm;
 use crate::memory::{dram, nvmem, PAGE_SIZE};
 use crate::process::thread::Thread;
 use crate::syscall::{sys_vmem, syscall_dispatcher};
@@ -149,6 +150,11 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     dram::finalize();
     dram::dump();
     debug!("Old page frame allocator:\n{}", memory::frames::dump());
+
+    // Initialize total free frames count in frame allocator
+    vmm::init_total_free_frames();
+    info!("Total free frames #{}, memory::frames::get_total_free_frames()", memory::frames::get_total_free_frames());
+    info!("Total free frames #{}, vmm::get_free_frames()", vmm::get_free_frames());
 
     
     // Initialize CPU information

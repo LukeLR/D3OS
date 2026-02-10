@@ -42,6 +42,8 @@
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::ops::Range;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering;
 use log::{warn, info};
 use spin::RwLock;
 
@@ -88,12 +90,14 @@ fn last_usable_virtual_address() -> u64 {
 /// Wrapper function
 /// Allocate `frame_count` contiguous page frames.
 pub unsafe fn alloc_frames(frame_count: usize) -> PhysFrameRange {
+    FREE_FRAMES.fetch_sub(frame_count, Ordering::SeqCst);
     frames::alloc(frame_count)
 }
 
 /// Wrapper function
 /// Free a contiguous range of page `frames`.
 pub unsafe fn free_frames(frames: PhysFrameRange) {
+    FREE_FRAMES.fetch_add((frames.end - frames.start) as usize, Ordering::SeqCst);
     unsafe {
         frames::free(frames);
     }
@@ -116,6 +120,18 @@ pub fn pfr_from_pr_identity(pr: PageRange) -> PhysFrameRange {
         end: end_frame,
     }
 }
+
+
+static FREE_FRAMES: AtomicUsize = AtomicUsize::new(0);                   // number of bytes currently in the pipe
+
+pub fn init_total_free_frames() {
+    FREE_FRAMES.store(frames::get_total_free_frames(), Ordering::SeqCst);
+}
+
+pub fn get_free_frames() -> usize {
+    FREE_FRAMES.load(Ordering::SeqCst)
+}
+
 
 /// All data related to a virtual address space of a process.
 pub struct VirtualAddressSpace {

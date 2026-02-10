@@ -41,6 +41,9 @@ use smallmap::Map;
 use spin::{Mutex, MutexGuard};
 use syscall::return_vals::Errno;
 
+use crate::memory;
+use log::info;
+
 // thread IDs
 static THREAD_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
@@ -406,6 +409,10 @@ impl Scheduler {
             join_map.remove(&current.id());
         }
        
+        
+        info!("kheap: free bytes    {}", memory::heap::get_free_bytes());
+        info!("frames: free frames #{}", memory::vmm::get_free_frames());
+
         drop(current); // Decrease Rc manually, because block() does not return
         self.block_and_switch(&mut ready_state);
         unreachable!()
