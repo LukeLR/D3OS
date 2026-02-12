@@ -24,6 +24,7 @@ members = [
      "os/application/window_manager",
     "os/application/terminal_emulator",
     "os/application/keytest",
+    "os/application/netperf",
 ]
 
 # [profile.release]

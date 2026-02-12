@@ -36,6 +36,7 @@ use super::sys_naming::{
 use super::sys_net::{
     sys_sock_accept, sys_sock_bind, sys_sock_close, sys_sock_connect,
     sys_get_ip_adresses, sys_sock_open, sys_sock_receive, sys_sock_send,
+    sys_sock_can_recv, sys_sock_can_send
 };
 use super::sys_system_info::sys_map_build_info;
 use super::sys_terminal::{
@@ -150,7 +151,9 @@ impl SyscallTable {
                 sys_sock_accept as *const _,
                 sys_sock_connect as *const _,
                 sys_sock_send as *const _,
+                sys_sock_can_send as *const _,
                 sys_sock_receive as *const _,
+                sys_sock_can_recv as *const _,
                 sys_sock_close as *const _,
                 sys_get_ip_adresses as *const _,
                 sys_mkfifo as *const _,
