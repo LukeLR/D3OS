@@ -665,7 +665,7 @@ pub enum ThreadState {
     Created,
     Ready,       // runnable, waiting to be scheduled
     Running,     // currently executing on a core
-    PreBlocking, // prepared to block
+    Parking,     // prepared to block
     Blocked,     // blocked
     Sleeping,    // sleeping for some time
     Exited,      // finished, waiting to be reaped
@@ -677,7 +677,7 @@ impl ThreadState {
             ThreadState::Created => 0,
             ThreadState::Ready => 1,
             ThreadState::Running => 2,
-            ThreadState::PreBlocking => 3,
+            ThreadState::Parking => 3,
             ThreadState::Blocked => 4,
             ThreadState::Sleeping => 5,
             ThreadState::Exited => 6,
@@ -689,7 +689,7 @@ impl ThreadState {
             0 => ThreadState::Created,
             1 => ThreadState::Ready,
             2 => ThreadState::Running,
-            3 => ThreadState::PreBlocking,
+            3 => ThreadState::Parking,
             4 => ThreadState::Blocked,
             5 => ThreadState::Sleeping,
             6 => ThreadState::Exited,

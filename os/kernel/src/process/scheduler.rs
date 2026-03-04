@@ -118,6 +118,18 @@ impl Scheduler {
             .collect()
     }
 
+    /// Try to return reference to current thread (called from interrupt dispatcher)
+    pub fn try_get_current_thread(&self) -> Option<Arc<Thread>> {
+        if self.ready_state.is_locked() {
+            return None;
+        }
+        if allocator().is_locked() {
+            return None;
+        }
+        let state = self.get_ready_state();
+        Some(Scheduler::current(&state))
+    }
+
     /// Return reference to current thread
     pub fn current_thread(&self) -> Arc<Thread> {
         let state = self.get_ready_state();
@@ -163,6 +175,12 @@ impl Scheduler {
         
         None
     }
+
+    /// Check if scheduler is initialized
+    pub fn is_initialized(&self) -> bool {
+        self.ready_state.lock().initialized
+    }
+
 
     /// Return (pid, tid) of current thread
     pub fn current_ids(&self) -> (usize, usize) {
@@ -224,46 +242,28 @@ impl Scheduler {
                 sleep_list.push((thread, wakeup_time));
             }
 
-            self.block_and_switch(&mut state);
+            self.block_switch(state);
         }
     }
 
     /// Prepare to block the calling thread
-    pub fn prepare_to_block(&self) {
+    /// Used from wait_queue to prepare the thread for blocking and get its (pid, tid) for later `notify_one` and `notify_all` calls
+    /// Returns (pid, tid)
+    pub fn park_current(&self) -> (usize, usize) {
         let state = self.get_ready_state();
         let thread = Scheduler::current(&state);
-        thread.reset_wake_pending();
-    }
-
-    /// Block calling thread only if allowed; otherwise consume pending wake and return.
-    pub fn block_if_allowed(&self) {
-        let mut state = self.get_ready_state();
-
-        if !state.initialized {
-            panic!("Scheduler: Cannot block thread before scheduler is initialized!");
-        }
-
-        let thread = Scheduler::current(&state);
-
-        // If a wake happened "early", don't block.
-        if thread.should_block_or_consume_wake() == false {
-            // A wake was pending and is now consumed.
-            // Thread continues running.
-            return;
-        }
-
-        // Actually block.
-        thread.set_state(ThreadState::Blocked);
-        {
-            let mut block_list = self.blocked_list.lock();
-            block_list.push(thread);
-        }
-        self.block_and_switch(&mut state);
+        thread.set_state(ThreadState::Parking);
+        (thread.process().id(), thread.id())
     }
 
     /// Unblock thread with given (pid, tid). \
     /// Returns true if thread was found and unblocked, false otherwise.
     pub fn unblock(&self, pid: usize, tid: usize) -> bool {
+       // info!("Unblock: Thread with PID={}, TID={}", pid, tid);
+
+        // Synchronize against `thread_switch`
+        let mut state = self.ready_state.lock();
+
         // 1) Check if the given thread is in the blocked list -> need to be woken up
         let blocked_thread: Option<Arc<Thread>> = {
             let mut block_list = self.blocked_list.lock();
@@ -274,38 +274,26 @@ impl Scheduler {
             }
         };
 
-        // If found, wake it up
+        // If we found a blocked thread in the block_list, wake it up
         if let Some(thread) = blocked_thread {
-            let mut state = self.get_ready_state();
+//            let mut state = self.get_ready_state();
             thread.set_state(ThreadState::Ready);
             state.ready_queue.push_front(Arc::clone(&thread));
+            return true;
         }
 
-
-        /*if let Some(thread) = blocked_thread {
-            // Record wake (harmless / consistent with semantics)
-            thread.set_state(ThreadState::Ready);
-            self.ready(thread);
-            return true;
-        }*/
-
-        // 2) Check ready queue (thread has not yet blocked) and current thread (thread has not blocked yet and is interrupted from a device interrupt)
-        {
-            let state = self.get_ready_state();
-
-            // 2a) Current thread (single-core): prevent it from blocking if it's about to.
-            if let Some(curr_thread) = &state.current_thread {
-                if curr_thread.id() == tid && curr_thread.process().id() == pid {
-                    curr_thread.set_wake_pending();
-                    return true;
-                }
-            }
-            // 2b) Ready queue
-            if let Some(thread) = state.ready_queue.iter().find(|t| t.id() == tid && t.process().id() == pid) {
-                thread.set_wake_pending();
+        // 2a) Check if the thread to be woken up is the current thread (it has not been blocked)
+        if let Some(curr_thread) = &state.current_thread {
+            if curr_thread.id() == tid && curr_thread.process().id() == pid {
+                curr_thread.set_state(ThreadState::Running);
                 return true;
             }
-            // drop(state) here
+
+        // 2b) Check if the thread to be woken up is in the ready queue
+        if let Some(thread) = state.ready_queue.iter().find(|t| t.id() == tid && t.process().id() == pid) {
+                curr_thread.set_state(ThreadState::Ready);
+                return true;
+            }
         }
 
         // 3) Thread not found in any known list.
@@ -341,13 +329,26 @@ impl Scheduler {
             let current_ptr = ptr::from_ref(current.as_ref());
             let next_ptr = ptr::from_ref(next.as_ref());
 
+            next.set_state(ThreadState::Running);
             state.current_thread = Some(next);
-            state.ready_queue.push_front(current);
+            
+            
+            if current.state() == ThreadState::Parking {
+                current.set_state(ThreadState::Blocked);
+                let mut block_list = self.blocked_list.lock();
+                block_list.push(current);
+            }
+            else {
+               current.set_state(ThreadState::Ready);
+               state.ready_queue.push_front(current);
+            }
+ 
 
             if interrupt {
                 apic().end_of_interrupt();
             }
 
+            // ready_state is unlocked in 'switch'
             unsafe {
                 Thread::switch(current_ptr, next_ptr);
             }
@@ -380,7 +381,7 @@ impl Scheduler {
             }
         }
 
-        self.block_and_switch(&mut state);
+        self.block_switch(state);
         Ok(0)
     }
 
@@ -414,7 +415,7 @@ impl Scheduler {
         info!("frames: free frames #{}", memory::vmm::get_free_frames());
 
         drop(current); // Decrease Rc manually, because block() does not return
-        self.block_and_switch(&mut ready_state);
+        self.block_switch(ready_state);
         unreachable!()
     }
 
@@ -444,25 +445,30 @@ impl Scheduler {
         ready_state.ready_queue.retain(|thread| thread.id() != thread_id);
     }
 
-    /// Block calling thread and switch to next ready thread.
-    fn block_and_switch(&self, state: &mut ReadyState) {
+    /// Switch to next thread, called from 'exit', 'sleep', and 'block'
+    /// the lock to the ReadyState must be held when calling this function,
+    /// since it will be dropped in 'switch' and the scheduler needs to be able to switch to another thread in the meantime
+    /// Will panic if there is no thread to switch to
+    fn block_switch(&self, mut state: MutexGuard<'_, ReadyState>) {
         let mut next_thread = state.ready_queue.pop_back();
 
         {
             // Execute in own block, so that the lock is released automatically (block() does not return)
             let mut sleep_list = self.sleep_list.lock();
             while next_thread.is_none() {
-                Scheduler::check_sleep_list(state, &mut sleep_list);
+                Scheduler::check_sleep_list(&mut state, &mut sleep_list);
                 next_thread = state.ready_queue.pop_back();
             }
         }
 
-        let current = Scheduler::current(state);
+        let current = Scheduler::current(&state);
+
+        // Panic if no threads to switch to (should not happen, since we should always have an idle thread)
         let next = next_thread.unwrap();
 
         // Thread has enqueued itself into sleep list and waited so long, that it dequeued itself in the meantime
         if current.id() == next.id() {
-            return;
+            panic!("Scheduler: No threads to switch to!");
         }
 
         let current_ptr = ptr::from_ref(current.as_ref());
@@ -471,6 +477,7 @@ impl Scheduler {
         state.current_thread = Some(next);
         drop(current); // Decrease Rc manually, because Thread::switch does not return
 
+        // Lock on state is dropped in 'switch', so that the scheduler can be switched again in the new thread
         unsafe {
             Thread::switch(current_ptr, next_ptr);
         }
@@ -564,4 +571,69 @@ impl Scheduler {
         buffer[..len].copy_from_slice(&bytes[..len]);
         Ok(len)
     }
+
+    /// Voluntarily yield the CPU to another runnable thread.
+    ///
+    /// Requirements / assumptions:
+    /// - Must be called when it is safe to switch (no stack locks, tss not locked).
+    /// - Does not change Parking/Blocked semantics; caller should set state beforehand if needed.
+    pub fn yield_now(&self) {
+        let mut state = self.get_ready_state();
+
+        if !state.initialized {
+            return;
+        }
+
+        // Current thread (Arc clone of state.current_thread)
+        let current = Scheduler::current(&state);
+
+        // Same restrictions as your timer-driven switching path
+        if current.stacks_locked() || tss().is_locked() {
+            return;
+        }
+
+        // If there is nobody else runnable, don't bother.
+        // (Note: ready_queue does NOT include the current thread yet.)
+        if state.ready_queue.is_empty() {
+            return;
+        }
+
+        // Requeue current as Ready
+        current.set_state(ThreadState::Ready);
+        state.ready_queue.push_front(Arc::clone(&current));
+
+        // Pick next
+        let next = match state.ready_queue.pop_back() {
+            Some(t) => t,
+            None => {
+                // Shouldn't happen because we checked !empty, but be safe
+                current.set_state(ThreadState::Running);
+                return;
+            }
+        };
+
+        // If we ended up picking ourselves (possible if only ourselves was in queue),
+        // restore running state and return.
+        if next.id() == current.id() {
+            next.set_state(ThreadState::Running);
+            state.current_thread = Some(next);
+            return;
+        }
+
+        // Switch to next
+        next.set_state(ThreadState::Running);
+        state.current_thread = Some(Arc::clone(&next));
+
+        let current_ptr = core::ptr::from_ref(current.as_ref());
+        let next_ptr = core::ptr::from_ref(next.as_ref());
+
+        // ready_state is unlocked in your asm trampoline via unlock_scheduler()
+        // (Thread::switch ultimately calls unlock_scheduler after switch)
+        drop(current);
+
+        unsafe {
+            Thread::switch(current_ptr, next_ptr);
+        }
+    }
+
 }
