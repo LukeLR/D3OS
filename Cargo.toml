@@ -4,7 +4,6 @@ resolver = "2"
 members = [
     "os/kernel",
     "os/application/about",
-    "os/application/doom",
     "os/application/hello",
     "os/application/helloc",
     "os/application/shell",
@@ -25,6 +24,7 @@ members = [
     "os/application/terminal_emulator",
     "os/application/keytest",
     "os/application/netperf",
+    "os/application/shmtest",
 ]
 
 # [profile.release]

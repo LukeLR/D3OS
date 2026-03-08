@@ -33,6 +33,7 @@ pub enum Errno {
     ESRCH      = -17, // No such thread
     EOF        = -18, // End of file
     EPIPE      = -19, // Broken pipe
+    ENOMEM     = -20, // Not enough space / cannot allocate memory
 }
 
 

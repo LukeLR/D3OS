@@ -23,6 +23,7 @@
    ║   - map_pfr_for_partial_vma   map pf range for subrange of a vma        ║
    ║   - map_partial_vma           map a sub page range of a vma by          ║
    ║                               allocating frames as needed               ║
+   ║   - unmap_vma                 unmap VMA in this address space           ║
    ║                                                                         ║
    ║   - clone_address_space       used for process creation                 ║
    ║   - create_kernel_address_space   used for process creation             ║
@@ -35,7 +36,7 @@
    ║   - pfr_from_pr_identity      get pfr range from page range identity    ║
    ╟─────────────────────────────────────────────────────────────────────────╢
    ║ Author: Fabian Ruhland and Michael Schoettner                           ║
-   ║         Univ. Duesseldorf, 7.8.2025                                     ║
+   ║         Univ. Duesseldorf, 8.3.2026                                     ║
    ╚═════════════════════════════════════════════════════════════════════════╝
 */
 
@@ -543,6 +544,12 @@ impl VirtualAddressSpace {
             }
         }
         None
+    }
+
+    /// unmap VMA in this adress space 
+    /// set free_physical to free the frames
+    pub fn unmap_vma(&self, vma:Arc<VirtualMemoryArea>, free_physical:bool) {
+        self.page_tables.unmap(vma.range, free_physical);
     }
 }
 
