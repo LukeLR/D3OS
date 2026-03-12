@@ -337,10 +337,9 @@ impl Apic {
             }
             local_apic = self.local_apic.try_lock();
         }
-
-        unsafe {
-            local_apic.unwrap().end_of_interrupt();
-        }
+        
+        // Call the LocalApic from the x2apic crate, which will unset the eoi-bit
+        unsafe { local_apic.unwrap().end_of_interrupt(); }
     }
 
     pub fn start_timer(&self, interval_ms: usize) {
