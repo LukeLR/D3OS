@@ -13,6 +13,7 @@ use alloc::string::String;
 use crate::scheduler;
 use signal::signal_handler::SignalHandler;
 use signal::signal_vector::SignalVector;
+use terminal::println;
 
 pub fn sys_meltdown_copy_to_kernel_memory(string_content: *mut u8, string_len: usize) -> *const u8 {
     let string = unsafe {

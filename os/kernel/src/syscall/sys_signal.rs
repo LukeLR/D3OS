@@ -11,6 +11,7 @@ use alloc::boxed::Box;
 use crate::scheduler;
 use signal::signal_handler::SignalHandler;
 use signal::signal_vector::SignalVector;
+use terminal::println;
 
 pub fn sys_signal_handler_register(index: SignalVector, handler: u64) {
     /* TODO: To make this safe, this should only allow user-mode applications to register

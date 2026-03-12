@@ -157,7 +157,7 @@ impl Thread {
                 .expect("Trying to create a kernel thread before process initialization!"),
             user_kickoff: VirtAddr::zero(),
             entry,
-            signals: Mutex::new(Signals::new())
+            signals: Mutex::new(Signals::new()),
             state: AtomicU8::new(ThreadState::Created.as_u8()),
             wake_pending: AtomicBool::new(false),
         };
@@ -225,7 +225,7 @@ impl Thread {
             process: parent,
             user_kickoff: kickoff_addr,
             entry,
-            signals: Mutex::new(Signals::new())
+            signals: Mutex::new(Signals::new()),
             state: AtomicU8::new(ThreadState::Created.as_u8()),
             wake_pending: AtomicBool::new(false),
         };

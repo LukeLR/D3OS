@@ -11,6 +11,7 @@ use core::option::Option::Some;
 use signal::signal_vector::{SignalVector, MAX_VECTORS};
 use x86_64::structures::idt::InterruptStackFrame;
 use x86_64::VirtAddr;
+use terminal::println;
 use crate::scheduler;
 
 pub struct SignalDispatcher {

@@ -18,6 +18,7 @@ use crate::signal::signal_dispatcher::handle_signal;
 use signal::signal_vector::SignalVector;
 use x86_64::structures::paging::page::PageRange;
 use x86_64::structures::paging::{Page, PageTableFlags};
+use terminal::println;
 
 #[repr(u8)]
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]

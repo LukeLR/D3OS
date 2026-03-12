@@ -15,14 +15,6 @@ use x86_64::registers::control::{Efer, EferFlags};
 use x86_64::registers::model_specific::{KernelGsBase, LStar, SFMask, Star};
 use x86_64::structures::gdt::SegmentSelector;
 use x86_64::{PrivilegeLevel, VirtAddr};
-use crate::syscall::sys_vmem::sys_map_memory;
-use crate::syscall::sys_time::{sys_get_date, sys_get_system_time, sys_set_date, };
-use crate::syscall::sys_concurrent::{sys_process_execute_binary, sys_process_exit, sys_process_id, sys_thread_create, sys_thread_exit,
-    sys_thread_id, sys_thread_join, sys_thread_sleep, sys_thread_switch};
-use crate::syscall::sys_terminal::{sys_terminal_read, sys_terminal_write};
-use crate::syscall::sys_naming::*;
-use crate::syscall::sys_signal::sys_signal_handler_register;
-use crate::syscall::sys_meltdown::sys_meltdown_copy_to_kernel_memory;
 
 use crate::{core_local_storage, tss};
 use log::info;
@@ -55,6 +47,8 @@ use super::sys_terminal::{
 use super::sys_time::{sys_get_date, sys_get_system_time, sys_set_date};
 use super::sys_vmem::{sys_map_memory, sys_map_frame_buffer};
 use super::sys_shm::{self, sys_shm_attach, sys_shm_detach, sys_shm_open, sys_shm_unlink};
+use crate::syscall::sys_signal::sys_signal_handler_register;
+use crate::syscall::sys_meltdown::sys_meltdown_copy_to_kernel_memory;
 
 
 pub const CORE_LOCAL_STORAGE_TSS_RSP0_PTR_INDEX: u64 = 0x00;
@@ -158,7 +152,6 @@ impl SyscallTable {
                 sys_cd as *const _,
                 sys_signal_handler_register as *const _,
                 sys_meltdown_copy_to_kernel_memory as *const _,
-                sys_cd as *const _,
                 sys_sock_open as *const _,
                 sys_sock_bind as *const _,
                 sys_sock_accept as *const _,

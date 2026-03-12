@@ -11,6 +11,7 @@
 
 use core::mem;
 use crate::return_vals::SyscallResult;
+use core::arch::asm;
 
 pub mod return_vals;
 
@@ -105,7 +106,7 @@ pub fn syscall(call: SystemCall, args: &[usize]) -> SyscallResult {
     let a5 = *args.get(5).unwrap_or(&0usize);
     
     match &call {
-        SystemCall::TerminalWrite => try_read(a0 as *const u8, a1),
+        SystemCall::TerminalWriteOutput => try_read(a0 as *const u8, a1),
         _ => {},
     }
 

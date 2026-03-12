@@ -10,7 +10,6 @@ members = [
     "os/application/legacy_shell",
     "os/application/uptime",
     "os/application/date",
-    "os/application/mkdir",
     "os/application/meltdown",
     "os/application/alloctest",
     "os/application/ls",
