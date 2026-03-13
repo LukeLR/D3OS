@@ -241,7 +241,7 @@ fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Opt
     let thread = scheduler().try_get_current_thread();
     if !thread.is_none() {   
         let thread = thread.unwrap();
-        if let OK(()) = thread.process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
+        if let Ok(()) = thread.process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
             return;
         }
     }
