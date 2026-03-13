@@ -238,8 +238,15 @@ fn handle_page_fault(mut frame: InterruptStackFrame, _index: u8, error: Option<u
 }
 
 fn handle_protection_fault(mut frame: InterruptStackFrame, index: u8, error: Option<u64>) {
-    println!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
-    scheduler().current_thread().process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame);
+    let thread = scheduler().try_get_current_thread();
+    if !thread.is_none() {   
+        let thread = thread.unwrap();
+        if let OK(()) = thread.process().signal_dispatcher.dispatch(SignalVector::SIGSEGV, &mut frame) {
+            return;
+        }
+    }
+    // Protection fault not resolved, panic
+    panic!("General protection fault handler, frame at {:?}: {:?}", &frame as *const InterruptStackFrame, frame);
 }
 
 fn handle_interrupt(_frame: InterruptStackFrame, index: u8, _error: Option<u64>) {
