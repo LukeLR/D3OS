@@ -11,7 +11,6 @@ members = [
     "os/application/uptime",
     "os/application/date",
     "os/application/meltdown",
-    "os/application/alloctest",
     "os/application/ls",
     "os/application/heaptest",
     "os/application/threadtest",
